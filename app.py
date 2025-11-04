@@ -1,114 +1,190 @@
 import streamlit as st
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import pipeline
 import wikipedia
 import torch
-import re
 from utils import (
     translate_pt_to_en, translate_en_to_pt,
-    ensure_english_if_possible, safe_generate_text,
-    is_bad_output
+    ensure_english_if_possible
 )
 
-# Configuração inicial
+# ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
 
 st.sidebar.title("🏆 Menu de Funções")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
-    ["Gerar texto (Wikipedia)", "Resumir texto", "Traduzir PT→EN", "Traduzir EN→PT", "Pergunta/Resposta"]
+    [
+        "Gerar texto (Wikipedia)",
+        "Resumir texto",
+        "Traduzir PT→EN",
+        "Traduzir EN→PT",
+        "Pergunta/Resposta"
+    ]
 )
+
+st.markdown(
+    """
+    <style>
+    body {
+        background-color: #111;
+        color: #ddd;
+    }
+    .stTextInput, .stTextArea, .stTextInput>div>div>input {
+        background-color: #222;
+        color: #fff;
+        border-radius: 8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
-Esta aplicação usa **Modelos de Linguagem Natural (NLP)** e a **Wikipedia** 
-para gerar textos, resumos e respostas sobre temas **esportivos**.
+Esta aplicação usa **Modelos de Linguagem Natural (NLP)** e a **Wikipedia**
+para gerar textos, resumos, traduções e respostas sobre temas **esportivos**.
 """)
 
 device = 0 if torch.cuda.is_available() else -1
 
-# Entrada de texto
-entrada = st.text_area("✏️ Digite o tema, texto ou pergunta:", height=150, placeholder="Exemplo: História do vôlei no Brasil")
+# ---------------- CONTEÚDO DINÂMICO ----------------
 
-# Botão de execução
-if st.button("Executar"):
-    if not entrada.strip():
-        st.warning("Por favor, insira um texto ou tema.")
-    else:
-        with st.spinner("Processando..."):
-            try:
-                # ===== GERAR TEXTO =====
-                if task == "Gerar texto (Wikipedia)":
-                    wikipedia.set_lang("pt")
-                    tema = entrada.strip()
-                    st.info(f"Buscando informações sobre **{tema}** na Wikipedia...")
-                    results = wikipedia.search(tema, results=3)
+if task == "Gerar texto (Wikipedia)":
+    st.header("📰 Geração de texto com base na Wikipedia")
+    st.write("""
+    Digite o nome de um esporte, atleta ou evento esportivo e a aplicação buscará
+    automaticamente um resumo na Wikipedia em português.  
+    Se não encontrar, o modelo de linguagem tentará gerar um texto informativo.
+    """)
+
+    entrada = st.text_input("🏷️ Tema esportivo:", placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
+
+    if st.button("Gerar texto"):
+        if not entrada.strip():
+            st.warning("Digite um tema válido antes de continuar.")
+        else:
+            with st.spinner("Buscando informações..."):
+                wikipedia.set_lang("pt")
+                try:
+                    results = wikipedia.search(entrada, results=3)
                     if results:
                         page = wikipedia.page(results[0])
                         summary = page.summary
                         paragraphs = summary.split("\n")
                         resumo_final = "\n\n".join(paragraphs[:5]).strip()
-                        st.success("✅ Resultado (Wikipedia):")
+                        st.success("✅ Resultado da Wikipedia:")
                         st.write(resumo_final)
                     else:
-                        st.warning("Nenhum resultado na Wikipedia. Tentando gerar texto com modelo...")
+                        st.warning("Nada encontrado na Wikipedia. Gerando texto com modelo...")
                         model_name = "google/flan-t5-base"
                         gen_pipe = pipeline("text2text-generation", model=model_name, tokenizer=model_name, device=device)
-                        prompt = f"Escreva um texto informativo e coerente sobre o tema '{tema}' em português."
+                        prompt = f"Escreva um texto informativo sobre o tema '{entrada}' em português."
                         res = gen_pipe(prompt, max_new_tokens=220, do_sample=True, top_p=0.92, temperature=0.9)
-                        texto = res[0].get("generated_text") or res[0].get("text") or str(res[0])
-                        st.success("✅ Resultado (Gerado):")
-                        st.write(texto.strip())
+                        texto = res[0].get("generated_text", "").strip()
+                        st.success("✅ Resultado gerado:")
+                        st.write(texto)
+                except Exception as e:
+                    st.error(f"Erro ao buscar ou gerar texto: {e}")
 
-                # ===== RESUMIR =====
-                elif task == "Resumir texto":
+# ------------------------------------------------------
+
+elif task == "Resumir texto":
+    st.header("✂️ Resumo de texto esportivo")
+    st.write("""
+    Cole abaixo um texto esportivo (por exemplo, uma notícia ou descrição de jogo).
+    O modelo irá gerar um **resumo objetivo e coerente**.
+    """)
+
+    entrada = st.text_area("📝 Texto para resumir:", height=200, placeholder="Cole aqui o texto esportivo completo...")
+
+    if st.button("Gerar resumo"):
+        if not entrada.strip():
+            st.warning("Insira um texto antes de resumir.")
+        else:
+            with st.spinner("Resumindo texto..."):
+                try:
                     model_name = "facebook/bart-large-cnn"
                     txt_en, translated = ensure_english_if_possible(entrada)
                     summarizer = pipeline("summarization", model=model_name, tokenizer=model_name, device=device)
                     summary = summarizer(txt_en, max_length=200, min_length=30, do_sample=False)
-                    summary_text = summary[0].get("summary_text", "")
+                    summary_text = summary[0]["summary_text"]
                     if translated:
                         summary_text = translate_en_to_pt(summary_text)
                     st.success("✅ Resumo:")
                     st.write(summary_text)
+                except Exception as e:
+                    st.error(f"Erro ao resumir: {e}")
 
-                # ===== TRADUÇÃO PT → EN =====
-                elif task == "Traduzir PT→EN":
-                    translated = translate_pt_to_en(entrada)
-                    st.success("✅ Tradução PT→EN:")
-                    st.write(translated)
+# ------------------------------------------------------
 
-                # ===== TRADUÇÃO EN → PT =====
-                elif task == "Traduzir EN→PT":
-                    translated = translate_en_to_pt(entrada)
-                    st.success("✅ Tradução EN→PT:")
-                    st.write(translated)
+elif task == "Traduzir PT→EN":
+    st.header("🌎 Tradução Português → Inglês")
+    st.write("""
+    Digite um texto em português e o modelo fará a tradução automática para o inglês.
+    """)
 
-                # ===== PERGUNTA / RESPOSTA =====
-                elif task == "Pergunta/Resposta":
-                    parts = entrada.strip().split("\n")
-                    if len(parts) > 1:
-                        question = parts[-1].strip()
-                        context = "\n".join(parts[:-1]).strip()
+    entrada = st.text_area("🗣️ Texto em português:", height=150, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
+    
+    if st.button("Traduzir para inglês"):
+        if not entrada.strip():
+            st.warning("Digite um texto antes de traduzir.")
+        else:
+            with st.spinner("Traduzindo..."):
+                try:
+                    result = translate_pt_to_en(entrada)
+                    st.success("✅ Tradução:")
+                    st.write(result)
+                except Exception as e:
+                    st.error(f"Erro na tradução: {e}")
+
+# ------------------------------------------------------
+
+elif task == "Traduzir EN→PT":
+    st.header("🌍 Tradução Inglês → Português")
+    st.write("""
+    Digite um texto em inglês e o modelo fará a tradução automática para português.
+    """)
+
+    entrada = st.text_area("🗣️ Texto em inglês:", height=150, placeholder="Example: Volleyball is a very popular sport in Brazil.")
+    
+    if st.button("Traduzir para português"):
+        if not entrada.strip():
+            st.warning("Digite um texto antes de traduzir.")
+        else:
+            with st.spinner("Traduzindo..."):
+                try:
+                    result = translate_en_to_pt(entrada)
+                    st.success("✅ Tradução:")
+                    st.write(result)
+                except Exception as e:
+                    st.error(f"Erro na tradução: {e}")
+
+# ------------------------------------------------------
+
+elif task == "Pergunta/Resposta":
+    st.header("❓ Perguntas e Respostas sobre Esportes")
+    st.write("""
+    Digite uma **pergunta esportiva** (exemplo: "Quem venceu a Copa de 2002?")  
+    e o sistema buscará a resposta na **Wikipedia**.
+    """)
+
+    entrada = st.text_input("🏷️ Pergunta:", placeholder="Exemplo: Quem foi o artilheiro da Copa do Mundo de 2002?")
+
+    if st.button("Responder"):
+        if not entrada.strip():
+            st.warning("Digite uma pergunta antes de continuar.")
+        else:
+            with st.spinner("Procurando resposta..."):
+                try:
+                    wikipedia.set_lang("pt")
+                    hits = wikipedia.search(entrada, results=3)
+                    if hits:
+                        page = wikipedia.page(hits[0])
+                        summary = wikipedia.summary(page.title, sentences=3)
+                        st.success("✅ Resposta provável (Wikipedia):")
+                        st.write(summary)
                     else:
-                        question = parts[0].strip()
-                        context = ""
-
-                    if context:
-                        st.info("Usando contexto fornecido para responder...")
-                        qa = pipeline("question-answering", model="deepset/roberta-base-squad2", tokenizer="deepset/roberta-base-squad2", device=device)
-                        ans = qa(question=question, context=context)
-                        st.success("✅ Resposta baseada no contexto:")
-                        st.write(ans.get("answer", ""))
-                    else:
-                        wikipedia.set_lang("pt")
-                        st.info("Buscando resposta na Wikipedia...")
-                        hits = wikipedia.search(question, results=3)
-                        if hits:
-                            page = wikipedia.page(hits[0])
-                            summary = wikipedia.summary(page.title, sentences=3)
-                            st.success("✅ Resposta (Wikipedia):")
-                            st.write(summary)
-                        else:
-                            st.warning("Não encontrei resposta na Wikipedia.")
-            except Exception as e:
-                st.error(f"❌ Erro durante a execução: {e}")
+                        st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
+                except Exception as e:
+                    st.error(f"Erro ao buscar resposta: {e}")
