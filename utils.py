@@ -90,81 +90,107 @@ def ensure_english_if_possible(text: str):
 # ---------- Resumo ----------
 def summarize_text(text: str) -> str:
     """
-    Versão robusta de summarize_text:
-    - tenta pipeline('summarization') com MODEL_SUMMARY (BART)
-    - se falhar, tenta pipeline('text2text-generation') com FLAN
-    - limpa tokens <extra_id_*> e strings vazias
-    - em caso de saída vazia, retorna debug com o raw_output (útil para ver o que deu errado)
+    Versão melhorada:
+    - tenta pipeline('summarization') (BART) primeiro
+    - fallbacks: MT5 -> FLAN
+    - rejeita saídas muito curtas ou que contenham só pontuação
+    - imprime debug nos logs se nada válido for gerado
     """
-    from transformers import Pipeline
-    from transformers.pipelines import AggregationStrategy
-
     if not text or not text.strip():
         return ""
 
-    # parâmetros
-    MODEL_SUMMARY = "facebook/bart-large-cnn"   # bom para resumo em inglês
-    MODEL_MT5 = "google/mt5-small"              # fallback multilingual
-    MODEL_FLAN = "google/flan-t5-base"          # fallback instruction
-    MAX_TOKENS_SUMMARY = 180
+    # modelos / parâmetros
+    MODEL_SUMMARY = "facebook/bart-large-cnn"
+    MODEL_MT5 = "google/mt5-small"
+    MODEL_FLAN = "google/flan-t5-base"
+    MAX_TOKENS_SUMMARY = 220
     MIN_TOKENS_SUMMARY = 30
 
+    def looks_good(s: str) -> bool:
+        if not s:
+            return False
+        s2 = s.strip()
+        # rejeita só pontuação (ex: ".", "..." etc)
+        if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in s2):
+            return False
+        # tamanho mínimo razoável (número de letras)
+        letters = sum(1 for ch in s2 if ch.isalpha())
+        if letters < 20:  # ajuste se quiser mais ou menos sensibilidade
+            return False
+        return True
+
     txt = text.strip()
+
+    # helper para mostrar raw output nos logs
+    def debug_log(prefix, obj):
+        try:
+            print(f"[summarize_text DEBUG] {prefix}: {repr(obj)[:1000]}")
+        except Exception:
+            print(f"[summarize_text DEBUG] {prefix}: (erro ao mostrar)")
+
+    # 1) pipeline summarization (preferível)
     try:
-        # 1) tentar pipeline summarization (melhor para resumos)
         try:
             summarizer = pipeline("summarization", model=MODEL_SUMMARY, tokenizer=MODEL_SUMMARY, device=device)
             out = summarizer(txt, max_length=MAX_TOKENS_SUMMARY, min_length=MIN_TOKENS_SUMMARY, do_sample=False)
-            # a saída costuma ser [{'summary_text': '...'}]
-            if isinstance(out, list) and len(out) > 0 and isinstance(out[0], dict):
-                summary_text = out[0].get("summary_text") or ""
+            # normalmente [{'summary_text': '...'}]
+            if isinstance(out, list) and out and isinstance(out[0], dict):
+                summary_text = out[0].get("summary_text", "") or ""
             else:
-                # se não no formato esperado, converte para string bruta
                 summary_text = str(out)
             summary_text = strip_extra_ids(summary_text).strip()
-            if summary_text:
+            debug_log("BART raw", out)
+            if looks_good(summary_text):
                 return summary_text
-        except Exception as e_summ:
-            # não fatal, tentamos fallback abaixo
-            print("Aviso: summarizer pipeline falhou:", e_summ)
+            else:
+                debug_log("BART rejected (too short/punct)", summary_text)
+        except Exception as ex:
+            debug_log("BART exception", ex)
+    except Exception as e:
+        print("summarize_text: erro inesperado no bloco BART:", e)
 
-        # 2) fallback: MT5 multilingual (útil se texto não for inglês)
+    # 2) fallback: MT5 text2text
+    try:
         try:
             mtpipe = pipeline("text2text-generation", model=MODEL_MT5, tokenizer=MODEL_MT5, device=device)
             prompt = f"Resuma em português de forma clara e objetiva:\n\n{txt}"
             res = mtpipe(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
-            # res formato variável: lista de dicts com 'generated_text' ou 'text'
-            if isinstance(res, list) and len(res) > 0:
+            debug_log("MT5 raw", res)
+            if isinstance(res, list) and res:
                 candidate = res[0].get("generated_text") or res[0].get("text") or str(res[0])
             else:
                 candidate = str(res)
             candidate = strip_extra_ids(candidate).strip()
-            if candidate:
+            if looks_good(candidate):
                 return candidate
-        except Exception as e_mt:
-            print("Aviso: MT5 fallback falhou:", e_mt)
+            else:
+                debug_log("MT5 rejected (too short/punct)", candidate)
+        except Exception as ex:
+            debug_log("MT5 exception", ex)
+    except Exception as e:
+        print("summarize_text: erro inesperado no bloco MT5:", e)
 
-        # 3) fallback final: FLAN (instruído)
+    # 3) fallback: FLAN (instruído)
+    try:
         try:
             flan = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
             prompt = f"Instruction: Resuma o texto a seguir de forma objetiva e clara em português.\n\nInput: {txt}\n\nOutput:"
             res2 = flan(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
-            if isinstance(res2, list) and len(res2) > 0:
+            debug_log("FLAN raw", res2)
+            if isinstance(res2, list) and res2:
                 candidate2 = res2[0].get("generated_text") or res2[0].get("text") or str(res2[0])
             else:
                 candidate2 = str(res2)
             candidate2 = strip_extra_ids(candidate2).strip()
-            if candidate2:
+            if looks_good(candidate2):
                 return candidate2
-        except Exception as e_flan:
-            print("Aviso: FLAN fallback falhou:", e_flan)
-
-        # se chegamos aqui, nenhum método gerou texto limpo — devolve debug para identificar
-        debug_msg = "(sem resumo gerado) Raw outputs podem estar nos logs do servidor."
-        print("DEBUG: summarize_text não conseguiu gerar texto limpo; verifique logs.")
-        return debug_msg
-
+            else:
+                debug_log("FLAN rejected (too short/punct)", candidate2)
+        except Exception as ex:
+            debug_log("FLAN exception", ex)
     except Exception as e:
-        print("Erro inesperado em summarize_text:", e)
-        return "(erro ao gerar resumo)"
+        print("summarize_text: erro inesperado no bloco FLAN:", e)
 
+    # nada válido — retorna mensagem curta para a UI e já deixou debug nos logs
+    print("summarize_text: nenhum método gerou resumo válido. Verifique os logs debug acima.")
+    return "(sem resumo gerado — consulte os logs do servidor para detalhes)"
