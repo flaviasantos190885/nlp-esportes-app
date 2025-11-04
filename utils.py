@@ -55,28 +55,155 @@ def safe_generate(pipe, prompt, max_new_tokens=200, deterministic=True):
         return ""
 
 # ---------- Traduções ----------
-def translate_pt_to_en(text: str) -> str:
-    pipe = safe_pipeline("translation", MODEL_MARIAN_PT_EN)
-    if pipe:
+# substitua as duas funções de tradução por este bloco no utils.py
+
+def _extract_translation_result(res):
+    """
+    Normaliza a saída dos pipelines: aceita formatos diversos e retorna string limpa.
+    """
+    try:
+        if res is None:
+            return ""
+        # pipeline('translation') normalmente retorna [{'translation_text': '...'}]
+        if isinstance(res, list) and len(res) > 0:
+            first = res[0]
+            if isinstance(first, dict):
+                # chaves possíveis
+                for k in ("translation_text", "generated_text", "text", "summary_text"):
+                    if k in first and first[k]:
+                        return strip_extra_ids(str(first[k]))
+                # nada encontrado na dict -> fallback para string do objeto
+                return strip_extra_ids(str(first))
+            else:
+                # lista de strings ou outro
+                return strip_extra_ids(str(first))
+        # se receberam uma string simples
+        if isinstance(res, str):
+            return strip_extra_ids(res)
+        # encapsulamentos inesperados -> str()
+        return strip_extra_ids(str(res))
+    except Exception as e:
+        print("DEBUG _extract_translation_result erro:", e)
         try:
+            return strip_extra_ids(str(res))
+        except Exception:
+            return ""
+
+
+def _is_bad_translation(s: str) -> bool:
+    """Detecta saídas inválidas: vazias, só pontuação ou muito curtas."""
+    if not s:
+        return True
+    ss = s.strip()
+    # só pontuação
+    if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in ss):
+        return True
+    # poucas letras (ajuste se quiser)
+    letters = sum(1 for ch in ss if ch.isalpha())
+    if letters < 2:   # frase muito curta / inválida
+        return True
+    return False
+
+
+def translate_pt_to_en(text: str) -> str:
+    """Tradução PT -> EN: tenta MarianMT; se falhar usa MT5; valida saída."""
+    if not text or not text.strip():
+        return ""
+
+    # 1) tentativa MarianMT (preferível)
+    try:
+        pipe = safe_pipeline("translation", MODEL_MARIAN_PT_EN)
+        if pipe:
             res = pipe(text, max_length=512)
-            return strip_extra_ids(res[0].get("translation_text", ""))
-        except Exception as e:
-            print("Marian PT->EN falhou:", e)
-    # fallback via MT5
-    gen = safe_pipeline("text2text-generation", MODEL_MT5)
-    return safe_generate(gen, f"Translate to English: {text}", max_new_tokens=256)
+            out = _extract_translation_result(res)
+            if not _is_bad_translation(out):
+                return out
+            else:
+                print("DEBUG translate_pt_to_en: saída Marian inválida:", repr(out))
+    except Exception as e:
+        print("DEBUG translate_pt_to_en Marian exception:", e)
+
+    # 2) fallback MT5 (text2text)
+    try:
+        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+        if mtpipe:
+            prompt = f"Translate to English:\n\n{text}"
+            res2 = mtpipe(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
+            out2 = _extract_translation_result(res2)
+            if not _is_bad_translation(out2):
+                return out2
+            else:
+                print("DEBUG translate_pt_to_en: saída MT5 inválida:", repr(out2))
+    except Exception as e:
+        print("DEBUG translate_pt_to_en MT5 exception:", e)
+
+    # 3) fallback final: FLAN (text2text-instruction)
+    try:
+        flan = safe_pipeline("text2text-generation", MODEL_FLAN)
+        if flan:
+            prompt = f"Instruction: Translate the following Portuguese text to English clearly and concisely.\n\nInput: {text}\n\nOutput:"
+            res3 = flan(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
+            out3 = _extract_translation_result(res3)
+            if not _is_bad_translation(out3):
+                return out3
+            else:
+                print("DEBUG translate_pt_to_en: saída FLAN inválida:", repr(out3))
+    except Exception as e:
+        print("DEBUG translate_pt_to_en FLAN exception:", e)
+
+    # se tudo falhar, retorna mensagem curta (a UI mostrará aviso)
+    print("translate_pt_to_en: nenhum método produziu tradução válida. Verifique logs.")
+    return "(tradução indisponível; ver logs)"
+
 
 def translate_en_to_pt(text: str) -> str:
-    pipe = safe_pipeline("translation", MODEL_MARIAN_EN_PT)
-    if pipe:
-        try:
+    """Tradução EN -> PT: tenta MarianMT; se falhar usa MT5; valida saída."""
+    if not text or not text.strip():
+        return ""
+
+    # 1) tentativa MarianMT EN->PT
+    try:
+        pipe = safe_pipeline("translation", MODEL_MARIAN_EN_PT)
+        if pipe:
             res = pipe(text, max_length=512)
-            return strip_extra_ids(res[0].get("translation_text", ""))
-        except Exception as e:
-            print("Marian EN->PT falhou:", e)
-    gen = safe_pipeline("text2text-generation", MODEL_MT5)
-    return safe_generate(gen, f"Translate to Portuguese: {text}", max_new_tokens=256)
+            out = _extract_translation_result(res)
+            if not _is_bad_translation(out):
+                return out
+            else:
+                print("DEBUG translate_en_to_pt: saída Marian inválida:", repr(out))
+    except Exception as e:
+        print("DEBUG translate_en_to_pt Marian exception:", e)
+
+    # 2) fallback MT5
+    try:
+        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+        if mtpipe:
+            prompt = f"Translate to Portuguese:\n\n{text}"
+            res2 = mtpipe(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
+            out2 = _extract_translation_result(res2)
+            if not _is_bad_translation(out2):
+                return out2
+            else:
+                print("DEBUG translate_en_to_pt: saída MT5 inválida:", repr(out2))
+    except Exception as e:
+        print("DEBUG translate_en_to_pt MT5 exception:", e)
+
+    # 3) fallback FLAN
+    try:
+        flan = safe_pipeline("text2text-generation", MODEL_FLAN)
+        if flan:
+            prompt = f"Instruction: Translate the following English text to Portuguese clearly and concisely.\n\nInput: {text}\n\nOutput:"
+            res3 = flan(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
+            out3 = _extract_translation_result(res3)
+            if not _is_bad_translation(out3):
+                return out3
+            else:
+                print("DEBUG translate_en_to_pt: saída FLAN inválida:", repr(out3))
+    except Exception as e:
+        print("DEBUG translate_en_to_pt FLAN exception:", e)
+
+    print("translate_en_to_pt: nenhum método produziu tradução válida. Verifique logs.")
+    return "(tradução indisponível; ver logs)"
 
 def ensure_english_if_possible(text: str):
     pt_indicators = [" que ", " não ", " para ", " por ", " com ", " é ", " está "]
