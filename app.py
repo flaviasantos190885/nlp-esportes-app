@@ -10,6 +10,14 @@ from utils import (
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
 
+# ----------------- LIMITES CONFIGURÁVEIS -----------------
+# Ajuste estes valores conforme preferir
+MAX_GEN_CHARS = 800        # limite para gerar texto (tema)
+MAX_SUMMARY_CHARS = 4000   # limite para texto a ser resumido
+MAX_TRANSLATE_CHARS = 2000 # limite para tradução
+MAX_QA_CHARS = 1000        # limite para pergunta/contexto em QA
+
+# --------------------------------------------------------
 st.sidebar.title("🏆 Menu de Funções")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
@@ -47,6 +55,15 @@ para gerar textos, resumos, traduções e respostas sobre temas **esportivos**.
 
 device = 0 if torch.cuda.is_available() else -1
 
+# ---------------- Função de checagem (servidor) ----------------
+def check_input_length(text: str, max_chars: int):
+    if not text or not text.strip():
+        return False, "Entrada vazia."
+    n = len(text)
+    if n > max_chars:
+        return False, f"⚠️ Texto muito longo: {n} caracteres (máx permitido: {max_chars}). Por favor reduza o texto."
+    return True, ""
+
 # ---------------- CONTEÚDO DINÂMICO ----------------
 
 # ======================================================
@@ -54,17 +71,15 @@ device = 0 if torch.cuda.is_available() else -1
 # ======================================================
 if task == "Gerar texto (Wikipedia)":
     st.header("📰 Geração de texto com base na Wikipedia")
-    st.write("""
-    Digite o nome de um esporte, atleta ou evento esportivo e a aplicação buscará
-    automaticamente um resumo na Wikipedia em português.  
-    Se não encontrar, o modelo de linguagem tentará gerar um texto informativo.
-    """)
+    st.write(f"Digite o nome de um esporte/tema (máx {MAX_GEN_CHARS} caracteres). A aplicação tentará buscar na Wikipedia e, se não encontrar, gerará um texto com o modelo.")
 
-    entrada = st.text_input("🏷️ Tema esportivo:", placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
+    # front-end limit (st.text_input não tem max_chars - usamos text_area para forçar limite)
+    entrada = st.text_area("🏷️ Tema esportivo:", height=80, max_chars=MAX_GEN_CHARS, placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
 
     if st.button("Gerar texto"):
-        if not entrada.strip():
-            st.warning("Digite um tema válido antes de continuar.")
+        ok, msg = check_input_length(entrada, MAX_GEN_CHARS)
+        if not ok:
+            st.warning(msg)
         else:
             with st.spinner("Buscando informações..."):
                 wikipedia.set_lang("pt")
@@ -80,118 +95,155 @@ if task == "Gerar texto (Wikipedia)":
                     else:
                         st.warning("Nada encontrado na Wikipedia. Gerando texto com modelo...")
                         model_name = "google/flan-t5-base"
-                        gen_pipe = pipeline("text2text-generation", model=model_name, tokenizer=model_name, device=device)
-                        prompt = f"Escreva um texto informativo sobre o tema '{entrada}' em português."
-                        res = gen_pipe(prompt, max_new_tokens=220, do_sample=True, top_p=0.92, temperature=0.9)
-                        texto = res[0].get("generated_text", "").strip()
-                        st.success("✅ Resultado gerado:")
-                        st.write(texto)
+                        try:
+                            gen_pipe = pipeline("text2text-generation", model=model_name, tokenizer=model_name, device=device)
+                            prompt = f"Escreva um texto informativo sobre o tema '{entrada}' em português."
+                            res = gen_pipe(prompt, max_new_tokens=220, do_sample=True, top_p=0.92, temperature=0.9)
+                            texto = res[0].get("generated_text", "").strip()
+                            if texto:
+                                st.success("✅ Resultado gerado:")
+                                st.write(texto)
+                            else:
+                                st.error("O modelo retornou saída vazia. Tente novamente ou reduza o tema.")
+                        except Exception as e:
+                            st.error("Erro ao carregar/usar o modelo de geração: " + str(e).splitlines()[0])
+
                 except Exception as e:
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
-
 
 # ======================================================
 # ✂️ RESUMIR TEXTO
 # ======================================================
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
-    st.write("""
-    Cole abaixo um texto esportivo (por exemplo, uma notícia ou descrição de jogo).
-    O modelo irá gerar um **resumo objetivo e coerente**.
-    """)
+    st.write(f"Cole abaixo um texto esportivo (máx {MAX_SUMMARY_CHARS} caracteres). O modelo gerará um resumo objetivo e coerente.")
 
-    entrada = st.text_area("📝 Texto para resumir:", height=200, placeholder="Cole aqui o texto esportivo completo...")
+    entrada = st.text_area("📝 Texto para resumir:", height=250, max_chars=MAX_SUMMARY_CHARS, placeholder="Cole aqui o texto esportivo completo...")
 
     if st.button("Gerar resumo"):
-        if not entrada.strip():
-            st.warning("Insira um texto antes de resumir.")
+        ok, msg = check_input_length(entrada, MAX_SUMMARY_CHARS)
+        if not ok:
+            st.warning(msg)
         else:
             with st.spinner("Resumindo texto..."):
                 try:
                     resumo = summarize_text(entrada)
-                    if resumo:
+                    if resumo and resumo.strip():
                         st.success("✅ Resumo:")
                         st.write(resumo)
                     else:
-                        st.warning("Não foi possível gerar resumo. Tente um texto maior ou verifique a conexão.")
+                        st.warning("Não foi possível gerar resumo. Tente um texto diferente ou reduza o tamanho.")
                 except Exception as e:
-                    st.error(f"Erro ao resumir (tente diminuir o texto): {e}")
-
+                    st.error(f"Erro ao resumir (tente diminuir o texto): {str(e).splitlines()[0]}")
 
 # ======================================================
 # 🌎 TRADUÇÃO PT → EN
 # ======================================================
 elif task == "Traduzir PT→EN":
     st.header("🌎 Tradução Português → Inglês")
-    st.write("""
-    Digite um texto em português e o modelo fará a tradução automática para o inglês.
-    """)
+    st.write(f"Digite um texto em português (máx {MAX_TRANSLATE_CHARS} caracteres).")
 
-    entrada = st.text_area("🗣️ Texto em português:", height=150, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
+    entrada = st.text_area("🗣️ Texto em português:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
     
     if st.button("Traduzir para inglês"):
-        if not entrada.strip():
-            st.warning("Digite um texto antes de traduzir.")
+        ok, msg = check_input_length(entrada, MAX_TRANSLATE_CHARS)
+        if not ok:
+            st.warning(msg)
         else:
             with st.spinner("Traduzindo..."):
                 try:
                     result = translate_pt_to_en(entrada)
-                    st.success("✅ Tradução:")
-                    st.write(result)
+                    if result:
+                        st.success("✅ Tradução:")
+                        st.write(result)
+                    else:
+                        st.warning("Tradução vazia. Tente novamente.")
                 except Exception as e:
-                    st.error(f"Erro na tradução: {e}")
-
+                    st.error(f"Erro na tradução: {str(e).splitlines()[0]}")
 
 # ======================================================
 # 🌍 TRADUÇÃO EN → PT
 # ======================================================
 elif task == "Traduzir EN→PT":
     st.header("🌍 Tradução Inglês → Português")
-    st.write("""
-    Digite um texto em inglês e o modelo fará a tradução automática para português.
-    """)
+    st.write(f"Digite um texto em inglês (máx {MAX_TRANSLATE_CHARS} caracteres).")
 
-    entrada = st.text_area("🗣️ Texto em inglês:", height=150, placeholder="Example: Volleyball is a very popular sport in Brazil.")
+    entrada = st.text_area("🗣️ Texto em inglês:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Example: Volleyball is a very popular sport in Brazil.")
 
     if st.button("Traduzir para português"):
-        if not entrada.strip():
-            st.warning("Digite um texto antes de traduzir.")
+        ok, msg = check_input_length(entrada, MAX_TRANSLATE_CHARS)
+        if not ok:
+            st.warning(msg)
         else:
             with st.spinner("Traduzindo..."):
                 try:
                     resultado = translate_en_to_pt(entrada)
-                    st.success("✅ Tradução:")
-                    st.write(resultado)
+                    if resultado:
+                        st.success("✅ Tradução:")
+                        st.write(resultado)
+                    else:
+                        st.warning("Tradução vazia. Tente novamente.")
                 except Exception as e:
-                    st.error(f"Erro na tradução: {e}")
-
+                    st.error(f"Erro na tradução: {str(e).splitlines()[0]}")
 
 # ======================================================
 # ❓ PERGUNTA / RESPOSTA
 # ======================================================
 elif task == "Pergunta/Resposta":
     st.header("❓ Perguntas e Respostas sobre Esportes")
-    st.write("""
-    Digite uma **pergunta esportiva** (exemplo: "Quem venceu a Copa de 2002?")  
-    e o sistema buscará a resposta na **Wikipedia**.
-    """)
+    st.write(f"Digite uma pergunta esportiva (máx {MAX_QA_CHARS} caracteres). Se quiser fornecer contexto, cole o contexto e na última linha coloque a pergunta.")
 
-    entrada = st.text_input("🏷️ Pergunta:", placeholder="Exemplo: Quem foi o artilheiro da Copa do Mundo de 2002?")
+    entrada = st.text_area("📝 Contexto + Pergunta (ou só a pergunta):", height=180, max_chars=MAX_QA_CHARS, placeholder="Ex: 'Breve contexto...\\n\\nQuem ganhou a Copa de 2002?'")
 
     if st.button("Responder"):
-        if not entrada.strip():
-            st.warning("Digite uma pergunta antes de continuar.")
+        ok, msg = check_input_length(entrada, MAX_QA_CHARS)
+        if not ok:
+            st.warning(msg)
         else:
             with st.spinner("Procurando resposta..."):
                 try:
-                    wikipedia.set_lang("pt")
-                    hits = wikipedia.search(entrada, results=3)
-                    if hits:
-                        page = wikipedia.page(hits[0])
-                        summary = wikipedia.summary(page.title, sentences=3)
-                        st.success("✅ Resposta provável (Wikipedia):")
-                        st.write(summary)
+                    parts = [p for p in entrada.strip().split("\n") if p.strip()]
+                    if len(parts) > 1:
+                        question = parts[-1].strip()
+                        context = "\n".join(parts[:-1]).strip()
                     else:
-                        st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
+                        question = parts[0].strip()
+                        context = ""
+
+                    if context:
+                        # Se houver contexto, tentar extrair resposta com QA (pode exigir modelo específico disponível)
+                        try:
+                            qa_pipe = pipeline("question-answering", model="deepset/roberta-base-squad2", tokenizer="deepset/roberta-base-squad2", device=device)
+                            ans = qa_pipe(question=question, context=context)
+                            answer = ans.get("answer", "")
+                            if answer:
+                                st.success("✅ Resposta (extractive QA):")
+                                st.write(answer)
+                                st.write("Detalhes:", ans)
+                            else:
+                                st.warning("Não foi encontrada resposta direta no contexto. Tentando fallback via Wikipedia...")
+                                raise Exception("Resposta vazia do QA")
+                        except Exception:
+                            # fallback via Wikipedia
+                            wikipedia.set_lang("pt")
+                            hits = wikipedia.search(question, results=3)
+                            if hits:
+                                page = wikipedia.page(hits[0])
+                                summary = wikipedia.summary(page.title, sentences=3)
+                                st.success("✅ Resposta provável (Wikipedia):")
+                                st.write(summary)
+                            else:
+                                st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
+                    else:
+                        # sem contexto: buscar na Wikipedia
+                        wikipedia.set_lang("pt")
+                        hits = wikipedia.search(question, results=3)
+                        if hits:
+                            page = wikipedia.page(hits[0])
+                            summary = wikipedia.summary(page.title, sentences=3)
+                            st.success("✅ Resposta provável (Wikipedia):")
+                            st.write(summary)
+                        else:
+                            st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
                 except Exception as e:
-                    st.error(f"Erro ao buscar resposta: {e}")
+                    st.error(f"Erro ao buscar resposta: {str(e).splitlines()[0]}")
