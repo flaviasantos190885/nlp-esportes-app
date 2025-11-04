@@ -4,8 +4,10 @@ import wikipedia
 import torch
 from utils import (
     translate_pt_to_en, translate_en_to_pt,
-    ensure_english_if_possible, summarize_text
+    ensure_english_if_possible, summarize_text, MAX_SUMMARY_CHARS
 )
+
+
 
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
@@ -116,24 +118,30 @@ if task == "Gerar texto (Wikipedia)":
 # ======================================================
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
-    st.write(f"Cole aqui o texto esportivo. O sistema aceita até {MAX_SUMMARY_CHARS} caracteres — textos maiores serão automaticamente truncados aos primeiros {MAX_SUMMARY_CHARS} caracteres e resumidos.")
+    st.write(f"Cole aqui o texto esportivo. O tamanho máximo permitido é {MAX_SUMMARY_CHARS} caracteres.")
+
     entrada = st.text_area("📝 Texto para resumir:", height=300, placeholder="Cole aqui a notícia ou descrição de jogo...")
 
     if st.button("Gerar resumo"):
         if not entrada.strip():
             st.warning("Insira um texto antes de resumir.")
         else:
-            # avisar se excedeu e foi truncado (opcional): mostramos um info curto antes de rodar
-            if len(entrada) > MAX_SUMMARY_CHARS:
-                st.info(f"O texto tinha {len(entrada)} caracteres — será truncado automaticamente para os primeiros {MAX_SUMMARY_CHARS} caracteres e resumido.")
-            with st.spinner("Resumindo..."):
-                resumo = summarize_text(entrada)
-                # resumo já pode conter aviso de truncagem, conforme utils.summarize_text
-                if resumo:
-                    st.success("✅ Resumo:")
-                    st.write(resumo)
-                else:
-                    st.warning("Não foi possível gerar o resumo. Tente reduzir o texto ou tente novamente.")
+            n = len(entrada)
+            if n > MAX_SUMMARY_CHARS:
+                # mensagem EXATA que você pediu
+                st.error(f"O texto tem {n} caracteres o máximo permitido é {MAX_SUMMARY_CHARS}.")
+            else:
+                with st.spinner("Resumindo..."):
+                    try:
+                        resumo = summarize_text(entrada)
+                        if resumo:
+                            st.success("✅ Resumo:")
+                            st.write(resumo)
+                        else:
+                            st.warning("Não foi possível gerar o resumo. Tente novamente.")
+                    except Exception as e:
+                        st.error(f"Erro ao resumir: {e}")
+
 
 
 
