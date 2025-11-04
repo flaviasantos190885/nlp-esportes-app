@@ -4,7 +4,7 @@ import wikipedia
 import torch
 from utils import (
     translate_pt_to_en, translate_en_to_pt,
-    ensure_english_if_possible
+    ensure_english_if_possible, summarize_text
 )
 
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
@@ -39,7 +39,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
 Esta aplicação usa **Modelos de Linguagem Natural (NLP)** e a **Wikipedia**
@@ -50,6 +49,9 @@ device = 0 if torch.cuda.is_available() else -1
 
 # ---------------- CONTEÚDO DINÂMICO ----------------
 
+# ======================================================
+# 📰 GERAÇÃO DE TEXTO (Wikipedia)
+# ======================================================
 if task == "Gerar texto (Wikipedia)":
     st.header("📰 Geração de texto com base na Wikipedia")
     st.write("""
@@ -87,8 +89,10 @@ if task == "Gerar texto (Wikipedia)":
                 except Exception as e:
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
 
-# ------------------------------------------------------
 
+# ======================================================
+# ✂️ RESUMIR TEXTO
+# ======================================================
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
     st.write("""
@@ -97,9 +101,6 @@ elif task == "Resumir texto":
     """)
 
     entrada = st.text_area("📝 Texto para resumir:", height=200, placeholder="Cole aqui o texto esportivo completo...")
-
-    # dentro de app.py, no ramo "Resumir texto" substitua o processamento por:
-    from utils import summarize_text
 
     if st.button("Gerar resumo"):
         if not entrada.strip():
@@ -114,11 +115,12 @@ elif task == "Resumir texto":
                     else:
                         st.warning("Não foi possível gerar resumo. Tente um texto maior ou verifique a conexão.")
                 except Exception as e:
-                    st.error(f"Erro ao resumir: {e}")
+                    st.error(f"Erro ao resumir (tente diminuir o texto): {e}")
 
 
-# ------------------------------------------------------
-
+# ======================================================
+# 🌎 TRADUÇÃO PT → EN
+# ======================================================
 elif task == "Traduzir PT→EN":
     st.header("🌎 Tradução Português → Inglês")
     st.write("""
@@ -126,8 +128,6 @@ elif task == "Traduzir PT→EN":
     """)
 
     entrada = st.text_area("🗣️ Texto em português:", height=150, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
-    
-    from utils import translate_pt_to_en
     
     if st.button("Traduzir para inglês"):
         if not entrada.strip():
@@ -141,8 +141,10 @@ elif task == "Traduzir PT→EN":
                 except Exception as e:
                     st.error(f"Erro na tradução: {e}")
 
-# ------------------------------------------------------
 
+# ======================================================
+# 🌍 TRADUÇÃO EN → PT
+# ======================================================
 elif task == "Traduzir EN→PT":
     st.header("🌍 Tradução Inglês → Português")
     st.write("""
@@ -150,23 +152,23 @@ elif task == "Traduzir EN→PT":
     """)
 
     entrada = st.text_area("🗣️ Texto em inglês:", height=150, placeholder="Example: Volleyball is a very popular sport in Brazil.")
-    
-    from utils import translate_en_to_pt
-    
+
     if st.button("Traduzir para português"):
         if not entrada.strip():
             st.warning("Digite um texto antes de traduzir.")
         else:
             with st.spinner("Traduzindo..."):
                 try:
-                    result = translate_en_to_pt(entrada)
+                    resultado = translate_en_to_pt(entrada)
                     st.success("✅ Tradução:")
-                    st.write(result)
+                    st.write(resultado)
                 except Exception as e:
                     st.error(f"Erro na tradução: {e}")
 
-# ------------------------------------------------------
 
+# ======================================================
+# ❓ PERGUNTA / RESPOSTA
+# ======================================================
 elif task == "Pergunta/Resposta":
     st.header("❓ Perguntas e Respostas sobre Esportes")
     st.write("""

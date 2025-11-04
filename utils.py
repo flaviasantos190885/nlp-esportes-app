@@ -1,111 +1,205 @@
-# início de utils.py — import torch de forma segura
+# utils.py
 import re
+import math
+from typing import Tuple
+
+# ----------------- import torch de forma segura -----------------
 try:
     import torch
     device = 0 if torch.cuda.is_available() else -1
 except Exception as _e:
-    # não encontrou/erro ao carregar torch -> continua com device CPU (-1)
-    print("Aviso: PyTorch não disponível ou falha ao carregar (DLL). Seguir usando device CPU. Erro:", _e)
+    # Ao não conseguir carregar torch (Win DLL error etc), prosseguir em CPU (-1)
+    print("Aviso: PyTorch não disponível ou falha ao carregar. Seguir usando device CPU. Erro:", _e)
     torch = None
     device = -1
 
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+# transformers
+from transformers import pipeline
 
-
-# Modelos estáveis em CPU
+# ----------------- model names (ajuste se quiser) -----------------
 MODEL_FLAN = "google/flan-t5-base"
-MODEL_PT_T5 = "unicamp-dl/ptt5-base-portuguese-vocab"
 MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"
 MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"
 
-device = 0 if torch.cuda.is_available() else -1
-_loaded = {}
-
-
-# ---------------------- FUNÇÕES AUXILIARES ----------------------
-
+# ----------------- helpers -----------------
 def strip_extra_ids(text: str) -> str:
-    """Remove tokens extras (<extra_id_0>) e espaços duplicados."""
+    """Remove tokens do tipo <extra_id_0> e espaços duplicados."""
     if not text:
         return ""
     text = re.sub(r"<extra_id_\d+>", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-
-def safe_generate(pipe, prompt, max_new_tokens=200):
-    """Geração com limpeza e fallback seguro."""
+def safe_generate(pipe, prompt: str, max_new_tokens: int = 200, do_sample: bool = False) -> str:
+    """
+    Gera texto com um pipeline (text2text-generation ou text-generation) e limpa o retorno.
+    Retorna string limpa (ou '' em caso de erro).
+    """
     try:
-        out = pipe(prompt, max_new_tokens=max_new_tokens, do_sample=False)
+        out = pipe(prompt, max_new_tokens=max_new_tokens, do_sample=do_sample, num_return_sequences=1)
         if isinstance(out, list) and len(out) > 0:
-            text = out[0].get("generated_text") or out[0].get("text") or str(out[0])
+            # modelos T5-style: 'generated_text' ou 'text' ou 'summary_text'
+            text = out[0].get("generated_text") or out[0].get("text") or out[0].get("summary_text") or str(out[0])
+            return strip_extra_ids(text)
+        # às vezes pipeline retorna dict
+        if isinstance(out, dict):
+            text = out.get("generated_text") or out.get("text") or out.get("summary_text") or str(out)
             return strip_extra_ids(text)
     except Exception as e:
-        print("Erro em safe_generate:", e)
+        print("safe_generate erro:", e)
     return ""
 
-
-# ---------------------- TRADUÇÃO ----------------------
-
+# ----------------- Traduções -----------------
 def translate_pt_to_en(text: str) -> str:
-    """Tradução Português → Inglês usando modelo MarianMT estável."""
+    """Tradução PT -> EN usando MarianMT (fallback FLAN se Marian não disponível)."""
+    text = (text or "").strip()
+    if not text:
+        return ""
     try:
         pipe = pipeline("translation", model=MODEL_MARIAN_PT_EN, device=device)
-        result = pipe(text, max_length=400)
-        return strip_extra_ids(result[0]["translation_text"])
+        out = pipe(text, max_length=512)
+        # Marian retorna chave 'translation_text'
+        if isinstance(out, list) and len(out) > 0 and "translation_text" in out[0]:
+            return strip_extra_ids(out[0]["translation_text"])
+        # fallback: tentativa segura com FLAN
     except Exception as e:
-        print("Erro Marian PT->EN:", e)
-        # fallback FLAN
-        pipe = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
-        return safe_generate(pipe, f"Translate to English: {text}")
+        print("Aviso: falha Marian PT->EN:", e)
 
+    try:
+        pipe2 = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
+        return safe_generate(pipe2, f"Translate to English: {text}", max_new_tokens=256, do_sample=False)
+    except Exception as e2:
+        print("Fallback FLAN PT->EN falhou:", e2)
+        return text
 
 def translate_en_to_pt(text: str) -> str:
-    """Tradução Inglês → Português usando modelo MarianMT estável."""
+    """Tradução EN -> PT usando MarianMT (fallback FLAN se Marian não disponível)."""
+    text = (text or "").strip()
+    if not text:
+        return ""
     try:
         pipe = pipeline("translation", model=MODEL_MARIAN_EN_PT, device=device)
-        result = pipe(text, max_length=400)
-        return strip_extra_ids(result[0]["translation_text"])
+        out = pipe(text, max_length=512)
+        if isinstance(out, list) and len(out) > 0 and "translation_text" in out[0]:
+            return strip_extra_ids(out[0]["translation_text"])
     except Exception as e:
-        print("Erro Marian EN->PT:", e)
-        pipe = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
-        return safe_generate(pipe, f"Traduza para português: {text}")
+        print("Aviso: falha Marian EN->PT:", e)
 
+    try:
+        pipe2 = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
+        return safe_generate(pipe2, f"Traduza para português: {text}", max_new_tokens=256, do_sample=False)
+    except Exception as e2:
+        print("Fallback FLAN EN->PT falhou:", e2)
+        return text
 
-def ensure_english_if_possible(text: str):
-    """Se texto parece português, traduz para inglês antes de processar."""
-    pt_words = [" que ", " não ", " para ", " por ", " com ", " é ", " está ", " será ", " também "]
-    if any(w in text.lower() for w in pt_words):
+def ensure_english_if_possible(text: str) -> Tuple[str, bool]:
+    """
+    Detecta se o texto aparenta ser PT (por heurística simples).
+    Se for PT, traduz PT->EN e retorna (texto_em_ingles, True).
+    Se não, retorna (texto, False).
+    """
+    text = (text or "").strip()
+    if not text:
+        return "", False
+    pt_indicators = [" que ", " não ", " para ", " por ", " com ", " é ", " está ", " também ", "será"]
+    low = text.lower()
+    if any(tok in low for tok in pt_indicators):
         try:
-            return translate_pt_to_en(text), True
+            en = translate_pt_to_en(text)
+            return en or text, True
         except Exception:
             return text, False
     return text, False
 
+# ----------------- Chunking para resumo -----------------
+def _chunk_text(text: str, max_chars: int = 3000):
+    """
+    Divide o texto em pedaços com até ~max_chars caracteres, preferindo cortar em espaços.
+    Retorna lista de strings.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    L = len(text)
+    while start < L:
+        end = start + max_chars
+        if end >= L:
+            chunks.append(text[start:L].strip())
+            break
+        # tenta cortar no último espaço antes de 'end'
+        cut = text.rfind(" ", start, end)
+        if cut <= start:
+            cut = end  # força corte
+        chunks.append(text[start:cut].strip())
+        start = cut
+    return chunks
 
-# ---------------------- RESUMO ----------------------
-
+# ----------------- Resumo (robusto) -----------------
 def summarize_text(text: str) -> str:
     """
-    Resume texto esportivo:
-      - Se for em português, traduz -> resume -> traduz de volta.
-      - Usa FLAN-T5 para gerar resumos curtos e coerentes.
+    Resumo robusto:
+      - traduz PT->EN se detectado PT
+      - divide o texto em chunks
+      - resume cada chunk com FLAN-T5
+      - junta parciais e resume final (se múltiplas parciais)
+      - traduz de volta para PT se necessário
     """
-    text = text.strip()
+    text = (text or "").strip()
     if not text:
         return ""
 
     try:
-        txt_en, translated = ensure_english_if_possible(text)
-        pipe = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
-        prompt = (
-            f"Summarize this sports-related text briefly and clearly:\n\n{txt_en}"
-        )
-        summary = safe_generate(pipe, prompt)
-        summary = strip_extra_ids(summary)
-        if translated and summary:
-            summary = translate_en_to_pt(summary)
-        return summary or "(sem resumo gerado)"
+        txt_en, was_translated = ensure_english_if_possible(text)
     except Exception as e:
-        print("Erro no resumo:", e)
-        return "(erro ao gerar resumo)"
+        print("ensure_english falhou:", e)
+        txt_en, was_translated = text, False
+
+    # pipeline FLAN
+    try:
+        pipe = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
+    except Exception as e:
+        print("Erro ao criar pipeline FLAN (resumo):", e)
+        return "(erro ao criar pipeline de resumo)"
+
+    # chunking
+    chunks = _chunk_text(txt_en, max_chars=2800)
+    if not chunks:
+        return ""
+
+    partials = []
+    for i, ch in enumerate(chunks):
+        try:
+            prompt = f"Summarize this sports-related text briefly and clearly:\n\n{ch}"
+            s = safe_generate(pipe, prompt, max_new_tokens=180, do_sample=False)
+            s = strip_extra_ids(s)
+            if s:
+                partials.append(s)
+        except Exception as e:
+            print(f"Erro resumindo chunk {i}:", e)
+
+    if not partials:
+        return "(sem resumo gerado)"
+
+    # se houver várias parciais, gerar resumo final
+    if len(partials) > 1:
+        joined = "\n\n".join(partials)
+        try:
+            prompt_final = f"Summarize the following text into a short, clear paragraph:\n\n{joined}"
+            final_summary = safe_generate(pipe, prompt_final, max_new_tokens=220, do_sample=False)
+            final_summary = strip_extra_ids(final_summary)
+        except Exception as e:
+            print("Erro ao gerar resumo final:", e)
+            final_summary = " ".join(partials)[:1000]
+    else:
+        final_summary = partials[0]
+
+    # traduz de volta para PT se o original foi PT
+    if was_translated and final_summary:
+        try:
+            final_summary = translate_en_to_pt(final_summary)
+        except Exception as e:
+            print("Falha ao traduzir resumo de volta para PT:", e)
+
+    return final_summary or "(sem resumo gerado)"
