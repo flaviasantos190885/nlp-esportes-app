@@ -19,6 +19,7 @@ MODEL_SUMMARIZER = "facebook/bart-large-cnn"  # summarizer em EN (fallback)
 MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"
 MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"
 
+
 _loaded = {}
 
 # ---------- helpers ----------

@@ -169,7 +169,7 @@ elif task == "Traduzir PT→EN":
     st.header("🌎 Tradução Português → Inglês")
     st.write(f"Digite um texto em português (máx {MAX_TRANSLATE_CHARS} caracteres).")
 
-    entrada = st.text_area("🗣️ Texto em português:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
+    entrada = st.text_area("🗣️ Texto em português:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Exemplo: O futebol é um esporte muito popular no Brasil.")
     
     if st.button("Traduzir para inglês"):
         ok, msg = check_input_length(entrada, MAX_TRANSLATE_CHARS)
