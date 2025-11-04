@@ -120,7 +120,12 @@ elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
     st.write(f"Cole aqui o texto esportivo. O tamanho máximo permitido é {MAX_SUMMARY_CHARS} caracteres.")
 
-    entrada = st.text_area("📝 Texto para resumir:", height=300, placeholder="Cole aqui a notícia ou descrição de jogo...")
+    entrada = st.text_area(
+    "📝 Texto para resumir:",
+    height=300,
+    placeholder="Cole aqui a notícia ou descrição...",
+    max_chars=MAX_SUMMARY_CHARS
+)
 
     if st.button("Gerar resumo"):
         if not entrada.strip():
