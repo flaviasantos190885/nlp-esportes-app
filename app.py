@@ -112,29 +112,54 @@ if task == "Gerar texto (Wikipedia)":
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
 
 # ======================================================
-# ✂️ RESUMIR TEXTO
+# ✂️ RESUMIR TEXTO (versão: permite colar livremente e opcionalmente truncar)
 # ======================================================
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
-    st.write(f"Cole abaixo um texto esportivo (máx {MAX_SUMMARY_CHARS} caracteres). O modelo gerará um resumo objetivo e coerente.")
+    st.write(f"Cole abaixo um texto esportivo. Máx sugerido: {MAX_SUMMARY_CHARS} caracteres. Se colar algo maior, você verá uma prévia truncada e poderá optar por usar a versão truncada.")
 
-    entrada = st.text_area("📝 Texto para resumir:", height=250, max_chars=MAX_SUMMARY_CHARS, placeholder="Cole aqui o texto esportivo completo...")
+    # aqui NÃO colocamos max_chars para permitir colar livremente
+    entrada = st.text_area("📝 Texto para resumir (cole aqui):", height=300, placeholder="Cole aqui o texto esportivo completo...")
 
-    if st.button("Gerar resumo"):
-        ok, msg = check_input_length(entrada, MAX_SUMMARY_CHARS)
-        if not ok:
-            st.warning(msg)
+    if not entrada or not entrada.strip():
+        st.info("Cole/paste o texto esportivo acima para que o resumo seja gerado.")
+    else:
+        n = len(entrada)
+        st.caption(f"Tamanho atual: {n} caracteres.")
+
+        if n > MAX_SUMMARY_CHARS:
+            st.warning(f"O texto tem {n} caracteres — excede o limite de {MAX_SUMMARY_CHARS}. Você pode:\n"
+                       "- reduzir manualmente o texto, ou\n"
+                       "- usar a versão truncada (os primeiros {MAX_SUMMARY_CHARS} caracteres).")
+            # mostra prévia truncada
+            truncated = entrada[:MAX_SUMMARY_CHARS]
+            st.subheader("🔎 Prévia truncada (primeiros caracteres):")
+            st.write(truncated[:2000] + ("..." if len(truncated) > 2000 else ""))
+
+            if st.button("Usar versão truncada e gerar resumo"):
+                with st.spinner("Resumindo (versão truncada)..."):
+                    try:
+                        resumo = summarize_text(truncated)
+                        if resumo and resumo.strip():
+                            st.success("✅ Resumo:")
+                            st.write(resumo)
+                        else:
+                            st.warning("Não foi possível gerar resumo. Tente reduzir manualmente ou aguarde e tente novamente.")
+                    except Exception as e:
+                        st.error(f"Erro ao resumir (truncado): {str(e).splitlines()[0]}")
         else:
-            with st.spinner("Resumindo texto..."):
-                try:
-                    resumo = summarize_text(entrada)
-                    if resumo and resumo.strip():
-                        st.success("✅ Resumo:")
-                        st.write(resumo)
-                    else:
-                        st.warning("Não foi possível gerar resumo. Tente um texto diferente ou reduza o tamanho.")
-                except Exception as e:
-                    st.error(f"Erro ao resumir (tente diminuir o texto): {str(e).splitlines()[0]}")
+            if st.button("Gerar resumo"):
+                with st.spinner("Resumindo..."):
+                    try:
+                        resumo = summarize_text(entrada)
+                        if resumo and resumo.strip():
+                            st.success("✅ Resumo:")
+                            st.write(resumo)
+                        else:
+                            st.warning("Não foi possível gerar resumo. Tente um texto diferente.")
+                    except Exception as e:
+                        st.error(f"Erro ao resumir: {str(e).splitlines()[0]}")
+
 
 # ======================================================
 # 🌎 TRADUÇÃO PT → EN

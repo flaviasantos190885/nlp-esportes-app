@@ -50,47 +50,62 @@ def safe_generate(pipe, prompt: str, max_new_tokens: int = 200, do_sample: bool 
     return ""
 
 # ----------------- Traduções -----------------
+# ----- em utils.py: importe strip_extra_ids no topo (se já não tiver) -----
+# from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+# (garanta que strip_extra_ids está definido neste arquivo)
+
 def translate_pt_to_en(text: str) -> str:
-    """Tradução PT -> EN usando MarianMT (fallback FLAN se Marian não disponível)."""
-    text = (text or "").strip()
+    """Tradução PT -> EN com fallback. Retorna apenas o texto limpo."""
+    text = text.strip()
     if not text:
         return ""
     try:
+        # pipeline de tradução (Marian) - sensor: 'translation' funciona para modelos Marian
         pipe = pipeline("translation", model=MODEL_MARIAN_PT_EN, device=device)
         out = pipe(text, max_length=512)
-        # Marian retorna chave 'translation_text'
-        if isinstance(out, list) and len(out) > 0 and "translation_text" in out[0]:
-            return strip_extra_ids(out[0]["translation_text"])
-        # fallback: tentativa segura com FLAN
+        # alguns pipelines retornam "translation_text"
+        translated = out[0].get("translation_text") if isinstance(out, list) else None
+        if not translated:
+            # fallback ao formato padrão
+            translated = out[0].get("generated_text") if isinstance(out, list) else str(out)
+        return strip_extra_ids(translated)
     except Exception as e:
-        print("Aviso: falha Marian PT->EN:", e)
+        # fallback via gerador (FLAN) caso Marian falhe
+        try:
+            gen = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
+            prompt = f"Translate to English (short and natural): {text}"
+            out = gen(prompt, max_new_tokens=200, do_sample=False, num_return_sequences=1)
+            # extrai resultado e remove tokens extras
+            candidate = out[0].get("generated_text") or out[0].get("text") or str(out[0])
+            return strip_extra_ids(candidate)
+        except Exception as e2:
+            print("Fallback FLAN PT->EN falhou:", e2)
+            return text  # devolve original como último recurso
 
-    try:
-        pipe2 = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
-        return safe_generate(pipe2, f"Translate to English: {text}", max_new_tokens=256, do_sample=False)
-    except Exception as e2:
-        print("Fallback FLAN PT->EN falhou:", e2)
-        return text
 
 def translate_en_to_pt(text: str) -> str:
-    """Tradução EN -> PT usando MarianMT (fallback FLAN se Marian não disponível)."""
-    text = (text or "").strip()
+    """Tradução EN -> PT com fallback. Retorna apenas o texto limpo."""
+    text = text.strip()
     if not text:
         return ""
     try:
         pipe = pipeline("translation", model=MODEL_MARIAN_EN_PT, device=device)
         out = pipe(text, max_length=512)
-        if isinstance(out, list) and len(out) > 0 and "translation_text" in out[0]:
-            return strip_extra_ids(out[0]["translation_text"])
+        translated = out[0].get("translation_text") if isinstance(out, list) else None
+        if not translated:
+            translated = out[0].get("generated_text") if isinstance(out, list) else str(out)
+        return strip_extra_ids(translated)
     except Exception as e:
-        print("Aviso: falha Marian EN->PT:", e)
+        try:
+            gen = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
+            prompt = f"Translate to Portuguese (short and natural): {text}"
+            out = gen(prompt, max_new_tokens=200, do_sample=False, num_return_sequences=1)
+            candidate = out[0].get("generated_text") or out[0].get("text") or str(out[0])
+            return strip_extra_ids(candidate)
+        except Exception as e2:
+            print("Fallback FLAN EN->PT falhou:", e2)
+            return text
 
-    try:
-        pipe2 = pipeline("text2text-generation", model=MODEL_FLAN, device=device)
-        return safe_generate(pipe2, f"Traduza para português: {text}", max_new_tokens=256, do_sample=False)
-    except Exception as e2:
-        print("Fallback FLAN EN->PT falhou:", e2)
-        return text
 
 def ensure_english_if_possible(text: str) -> Tuple[str, bool]:
     """
