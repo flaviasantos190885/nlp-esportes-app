@@ -90,37 +90,81 @@ def ensure_english_if_possible(text: str):
 # ---------- Resumo ----------
 def summarize_text(text: str) -> str:
     """
-    Resume o texto (espera receber um texto com tamanho OK — o app verifica o limite antes).
-    - Se o texto estiver em PT: traduz PT->EN, resume em EN, traduz EN->PT.
-    - Se houver falha com summarizer, tenta fallback com FLAN.
+    Versão robusta de summarize_text:
+    - tenta pipeline('summarization') com MODEL_SUMMARY (BART)
+    - se falhar, tenta pipeline('text2text-generation') com FLAN
+    - limpa tokens <extra_id_*> e strings vazias
+    - em caso de saída vazia, retorna debug com o raw_output (útil para ver o que deu errado)
     """
-    txt = (text or "").strip()
-    if not txt:
+    from transformers import Pipeline
+    from transformers.pipelines import AggregationStrategy
+
+    if not text or not text.strip():
         return ""
 
+    # parâmetros
+    MODEL_SUMMARY = "facebook/bart-large-cnn"   # bom para resumo em inglês
+    MODEL_MT5 = "google/mt5-small"              # fallback multilingual
+    MODEL_FLAN = "google/flan-t5-base"          # fallback instruction
+    MAX_TOKENS_SUMMARY = 180
+    MIN_TOKENS_SUMMARY = 30
+
+    txt = text.strip()
     try:
-        txt_en, was_translated = ensure_english_if_possible(txt)
+        # 1) tentar pipeline summarization (melhor para resumos)
+        try:
+            summarizer = pipeline("summarization", model=MODEL_SUMMARY, tokenizer=MODEL_SUMMARY, device=device)
+            out = summarizer(txt, max_length=MAX_TOKENS_SUMMARY, min_length=MIN_TOKENS_SUMMARY, do_sample=False)
+            # a saída costuma ser [{'summary_text': '...'}]
+            if isinstance(out, list) and len(out) > 0 and isinstance(out[0], dict):
+                summary_text = out[0].get("summary_text") or ""
+            else:
+                # se não no formato esperado, converte para string bruta
+                summary_text = str(out)
+            summary_text = strip_extra_ids(summary_text).strip()
+            if summary_text:
+                return summary_text
+        except Exception as e_summ:
+            # não fatal, tentamos fallback abaixo
+            print("Aviso: summarizer pipeline falhou:", e_summ)
 
-        # tenta summarizer (primário)
-        summ_pipe = safe_pipeline("summarization", MODEL_SUMMARIZER)
-        summary_en = ""
-        if summ_pipe:
-            try:
-                out = summ_pipe(txt_en, max_length=200, min_length=30, do_sample=False)
-                summary_en = out[0].get("summary_text", "")
-            except Exception as e:
-                print("summarizer pipeline falhou:", e)
+        # 2) fallback: MT5 multilingual (útil se texto não for inglês)
+        try:
+            mtpipe = pipeline("text2text-generation", model=MODEL_MT5, tokenizer=MODEL_MT5, device=device)
+            prompt = f"Resuma em português de forma clara e objetiva:\n\n{txt}"
+            res = mtpipe(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
+            # res formato variável: lista de dicts com 'generated_text' ou 'text'
+            if isinstance(res, list) and len(res) > 0:
+                candidate = res[0].get("generated_text") or res[0].get("text") or str(res[0])
+            else:
+                candidate = str(res)
+            candidate = strip_extra_ids(candidate).strip()
+            if candidate:
+                return candidate
+        except Exception as e_mt:
+            print("Aviso: MT5 fallback falhou:", e_mt)
 
-        # fallback generator se summarizer falhar
-        if not summary_en:
-            gen = safe_pipeline("text2text-generation", MODEL_FLAN)
-            prompt = f"Summarize briefly and clearly the following text:\n\n{txt_en}"
-            summary_en = safe_generate(gen, prompt, max_new_tokens=220)
+        # 3) fallback final: FLAN (instruído)
+        try:
+            flan = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
+            prompt = f"Instruction: Resuma o texto a seguir de forma objetiva e clara em português.\n\nInput: {txt}\n\nOutput:"
+            res2 = flan(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
+            if isinstance(res2, list) and len(res2) > 0:
+                candidate2 = res2[0].get("generated_text") or res2[0].get("text") or str(res2[0])
+            else:
+                candidate2 = str(res2)
+            candidate2 = strip_extra_ids(candidate2).strip()
+            if candidate2:
+                return candidate2
+        except Exception as e_flan:
+            print("Aviso: FLAN fallback falhou:", e_flan)
 
-        summary_en = strip_extra_ids(summary_en)
-        if was_translated and summary_en:
-            return translate_en_to_pt(summary_en)
-        return summary_en or "(sem resumo gerado)"
+        # se chegamos aqui, nenhum método gerou texto limpo — devolve debug para identificar
+        debug_msg = "(sem resumo gerado) Raw outputs podem estar nos logs do servidor."
+        print("DEBUG: summarize_text não conseguiu gerar texto limpo; verifique logs.")
+        return debug_msg
+
     except Exception as e:
-        print("Erro em summarize_text:", e)
-        return f"(erro ao gerar resumo: {e})"
+        print("Erro inesperado em summarize_text:", e)
+        return "(erro ao gerar resumo)"
+
