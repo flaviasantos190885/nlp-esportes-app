@@ -1,7 +1,8 @@
 streamlit
-transformers>=4.30
-torch
-sentencepiece
 wikipedia
 huggingface-hub
-
+streamlit
+transformers>=4.44.0
+torch
+sentencepiece
+protobuf

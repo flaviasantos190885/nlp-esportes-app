@@ -16,8 +16,9 @@ MAX_SUMMARY_CHARS = 4000  # <--- limite usado pelo app (exportar/importar em app
 MODEL_FLAN = "google/flan-t5-base"
 MODEL_MT5 = "google/mt5-small"
 MODEL_SUMMARIZER = "facebook/bart-large-cnn"  # summarizer em EN (fallback)
-MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"
-MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"
+MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-tc-big-zle-en"  # português → inglês
+MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-tc-big-en-pt"   # inglês → português
+
 
 
 _loaded = {}
@@ -106,88 +107,29 @@ def _is_bad_translation(s: str) -> bool:
     return False
 
 
+from transformers import pipeline
+
 def translate_pt_to_en(text: str) -> str:
-    """Tradução PT -> EN: tenta MarianMT; se falhar usa MT5; valida saída."""
     if not text or not text.strip():
         return ""
-
-    # 1) tentativa MarianMT (preferível)
     try:
-        pipe = safe_pipeline("translation", MODEL_MARIAN_PT_EN)
-        if pipe:
-            res = pipe(text, max_length=512)
-            out = _extract_translation_result(res)
-            if not _is_bad_translation(out):
-                return out
-            else:
-                print("DEBUG translate_pt_to_en: saída Marian inválida:", repr(out))
+        pipe = pipeline("translation", model=MODEL_MARIAN_PT_EN, tokenizer=MODEL_MARIAN_PT_EN)
+        result = pipe(text)
+        return result[0]['translation_text']
     except Exception as e:
-        print("DEBUG translate_pt_to_en Marian exception:", e)
-
-    # 2) fallback MT5 (text2text)
-    try:
-        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
-        if mtpipe:
-            prompt = f"Translate to English:\n\n{text}"
-            res2 = mtpipe(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
-            out2 = _extract_translation_result(res2)
-            if not _is_bad_translation(out2):
-                return out2
-            else:
-                print("DEBUG translate_pt_to_en: saída MT5 inválida:", repr(out2))
-    except Exception as e:
-        print("DEBUG translate_pt_to_en MT5 exception:", e)
-
-    # 3) fallback final: FLAN (text2text-instruction)
-    try:
-        flan = safe_pipeline("text2text-generation", MODEL_FLAN)
-        if flan:
-            prompt = f"Instruction: Translate the following Portuguese text to English clearly and concisely.\n\nInput: {text}\n\nOutput:"
-            res3 = flan(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
-            out3 = _extract_translation_result(res3)
-            if not _is_bad_translation(out3):
-                return out3
-            else:
-                print("DEBUG translate_pt_to_en: saída FLAN inválida:", repr(out3))
-    except Exception as e:
-        print("DEBUG translate_pt_to_en FLAN exception:", e)
-
-    # se tudo falhar, retorna mensagem curta (a UI mostrará aviso)
-    print("translate_pt_to_en: nenhum método produziu tradução válida. Verifique logs.")
-    return "(tradução indisponível; ver logs)"
-
+        print("Erro PT→EN:", e)
+        return "(erro na tradução — tente novamente)"
 
 def translate_en_to_pt(text: str) -> str:
-    """Tradução EN -> PT: tenta MarianMT; se falhar usa MT5; valida saída."""
     if not text or not text.strip():
         return ""
-
-    # 1) tentativa MarianMT EN->PT
     try:
-        pipe = safe_pipeline("translation", MODEL_MARIAN_EN_PT)
-        if pipe:
-            res = pipe(text, max_length=512)
-            out = _extract_translation_result(res)
-            if not _is_bad_translation(out):
-                return out
-            else:
-                print("DEBUG translate_en_to_pt: saída Marian inválida:", repr(out))
+        pipe = pipeline("translation", model=MODEL_MARIAN_EN_PT, tokenizer=MODEL_MARIAN_EN_PT)
+        result = pipe(text)
+        return result[0]['translation_text']
     except Exception as e:
-        print("DEBUG translate_en_to_pt Marian exception:", e)
-
-    # 2) fallback MT5
-    try:
-        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
-        if mtpipe:
-            prompt = f"Translate to Portuguese:\n\n{text}"
-            res2 = mtpipe(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
-            out2 = _extract_translation_result(res2)
-            if not _is_bad_translation(out2):
-                return out2
-            else:
-                print("DEBUG translate_en_to_pt: saída MT5 inválida:", repr(out2))
-    except Exception as e:
-        print("DEBUG translate_en_to_pt MT5 exception:", e)
+        print("Erro EN→PT:", e)
+        return "(erro na tradução — tente novamente)"
 
     # 3) fallback FLAN
     try:
