@@ -98,23 +98,24 @@ elif task == "Resumir texto":
 
     entrada = st.text_area("📝 Texto para resumir:", height=200, placeholder="Cole aqui o texto esportivo completo...")
 
+    # dentro de app.py, no ramo "Resumir texto" substitua o processamento por:
+    from utils import summarize_text
+
     if st.button("Gerar resumo"):
         if not entrada.strip():
             st.warning("Insira um texto antes de resumir.")
         else:
             with st.spinner("Resumindo texto..."):
                 try:
-                    model_name = "facebook/bart-large-cnn"
-                    txt_en, translated = ensure_english_if_possible(entrada)
-                    summarizer = pipeline("summarization", model=model_name, tokenizer=model_name, device=device)
-                    summary = summarizer(txt_en, max_length=200, min_length=30, do_sample=False)
-                    summary_text = summary[0]["summary_text"]
-                    if translated:
-                        summary_text = translate_en_to_pt(summary_text)
-                    st.success("✅ Resumo:")
-                    st.write(summary_text)
+                    resumo = summarize_text(entrada)
+                    if resumo:
+                        st.success("✅ Resumo:")
+                        st.write(resumo)
+                    else:
+                        st.warning("Não foi possível gerar resumo. Tente um texto maior ou verifique a conexão.")
                 except Exception as e:
                     st.error(f"Erro ao resumir: {e}")
+
 
 # ------------------------------------------------------
 
@@ -125,6 +126,8 @@ elif task == "Traduzir PT→EN":
     """)
 
     entrada = st.text_area("🗣️ Texto em português:", height=150, placeholder="Exemplo: O vôlei é um esporte muito popular no Brasil.")
+    
+    from utils import translate_pt_to_en
     
     if st.button("Traduzir para inglês"):
         if not entrada.strip():
@@ -147,6 +150,8 @@ elif task == "Traduzir EN→PT":
     """)
 
     entrada = st.text_area("🗣️ Texto em inglês:", height=150, placeholder="Example: Volleyball is a very popular sport in Brazil.")
+    
+    from utils import translate_en_to_pt
     
     if st.button("Traduzir para português"):
         if not entrada.strip():
