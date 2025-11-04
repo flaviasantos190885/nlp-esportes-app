@@ -116,12 +116,29 @@ if task == "Gerar texto (Wikipedia)":
 # ======================================================
 # ✂️ RESUMIR TEXTO (versão: permite colar livremente e opcionalmente truncar)
 # ======================================================
+
+# ------------------------------------------------------
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
-    st.write(f"Cole aqui o texto esportivo. O tamanho máximo permitido é {MAX_SUMMARY_CHARS} caracteres.")
+    st.write("""
+    Cole abaixo um texto esportivo (por exemplo, uma notícia ou descrição de jogo).
+    O modelo irá gerar um **resumo objetivo e coerente**.
+    """)
 
-    entrada = st.text_area("📝 Texto para resumir:", height=300,placeholder="Cole aqui a notícia ou descrição de jogo...",
-    max_chars=MAX_SUMMARY_CHARS )
+    # limite máximo que você quer impor
+    MAX_SUMMARY_CHARS = 4000
+
+    # Textarea SEM max_chars para permitir colar qualquer tamanho
+    entrada = st.text_area(
+        "📝 Texto para resumir:",
+        height=300,
+        placeholder="Cole aqui o texto esportivo completo (notícia, descrição de jogo, etc.)..."
+    )
+
+    # contador de caracteres à direita (usando colunas para parear com o campo)
+    c1, c2 = st.columns([8, 1])
+    c1.write("")  # espaço vazio para alinhar
+    c2.markdown(f"<div style='text-align: right; color: #bbb;'>{len(entrada)}/{MAX_SUMMARY_CHARS}</div>", unsafe_allow_html=True)
 
     if st.button("Gerar resumo"):
         if not entrada.strip():
@@ -129,22 +146,21 @@ elif task == "Resumir texto":
         else:
             n = len(entrada)
             if n > MAX_SUMMARY_CHARS:
-                # mensagem EXATA que você pediu
-                st.error(f"O texto tem {n} caracteres o máximo permitido é {MAX_SUMMARY_CHARS}.")
+                # mensagem clara e retornamos (não gera resumo)
+                st.error(f"O texto tem {n} caracteres — o máximo permitido é {MAX_SUMMARY_CHARS}. Reduza o texto e tente novamente.")
             else:
-                with st.spinner("Resumindo..."):
+                # prossegue com resumo (usa summarize_text do utils.py)
+                with st.spinner("Resumindo texto..."):
                     try:
+                        from utils import summarize_text
                         resumo = summarize_text(entrada)
                         if resumo:
                             st.success("✅ Resumo:")
                             st.write(resumo)
                         else:
-                            st.warning("Não foi possível gerar o resumo. Tente novamente.")
+                            st.warning("Não foi possível gerar resumo. Tente um texto maior ou verifique a conexão.")
                     except Exception as e:
                         st.error(f"Erro ao resumir: {e}")
-
-
-
 
 # ======================================================
 # 🌎 TRADUÇÃO PT → EN
