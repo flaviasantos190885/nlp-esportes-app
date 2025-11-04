@@ -1,119 +1,173 @@
 # utils.py
-# Funções auxiliares: tradução, resumo e geração segura.
-# Observações:
-# - Se usar repositórios privados/gated do Hugging Face, exporte
-#   HF_TOKEN como variável de ambiente: export HF_TOKEN="seu_token"  (Linux/mac)
-#   setx HF_TOKEN "seu_token" (Windows, depois reinicie o terminal)
-# - Usa modelos públicos Helsinki-NLP e google/flan-t5-base como fallback.
-
 import re
-import os
+import math
+from typing import Tuple
+
+# ----------------- import torch de forma segura -----------------
 try:
     import torch
     device = 0 if torch.cuda.is_available() else -1
 except Exception as _e:
-    # Se não carregar o torch (ex: Windows com DLL problem), seguimos com CPU
+    # Ao não conseguir carregar torch (Win DLL error etc), prosseguir em CPU (-1)
+    print("Aviso: PyTorch não disponível ou falha ao carregar. Seguir usando device CPU. Erro:", _e)
     torch = None
     device = -1
 
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+# transformers
+from transformers import pipeline
 
-# Modelos (padrões públicos)
+# ----------------- model names (ajuste se quiser) -----------------
 MODEL_FLAN = "google/flan-t5-base"
-MODEL_MT5 = "google/mt5-small"
-MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"
-MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"
-SUMMARIZER_EN = "facebook/bart-large-cnn"  # sumarizador em inglês
+MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"
+MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"
 
-# Limites úteis (o app usa estes valores)
-MAX_TRANSLATE_CHARS = 2000
-MAX_SUMMARY_CHARS = 4000
-
-# cache simples
-_loaded = {}
-
+# ----------------- helpers -----------------
 def strip_extra_ids(text: str) -> str:
+    """Remove tokens do tipo <extra_id_0> e espaços duplicados."""
     if not text:
         return ""
     text = re.sub(r"<extra_id_\d+>", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-def safe_pipeline(task, model_name, **kwargs):
+def safe_generate(pipe, prompt: str, max_new_tokens: int = 200, do_sample: bool = False) -> str:
     """
-    Carrega pipeline com tratamento de token se houver HF token.
+    Gera texto com um pipeline (text2text-generation ou text-generation) e limpa o retorno.
+    Retorna string limpa (ou '' em caso de erro).
     """
-    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
-    use_auth = {"use_auth_token": hf_token} if hf_token else {}
-    return pipeline(task, model=model_name, device=device, **use_auth, **kwargs)
-
-def safe_generate_text(pipe, prompt, max_new_tokens=150, deterministic=True):
-    gen_kwargs = {"max_new_tokens": max_new_tokens}
-    if deterministic:
-        gen_kwargs.update({"do_sample": False})
-    else:
-        gen_kwargs.update({"do_sample": True, "top_p": 0.92, "temperature": 0.8})
     try:
-        res = pipe(prompt, **gen_kwargs, num_return_sequences=1)
-        if isinstance(res, list) and len(res) > 0:
-            # diferentes pipelines usam chaves diferentes
-            txt = res[0].get("generated_text") or res[0].get("translation_text") or res[0].get("text") or res[0].get("summary_text")
-            return strip_extra_ids(str(txt))
-        return strip_extra_ids(str(res))
+        out = pipe(prompt, max_new_tokens=max_new_tokens, do_sample=do_sample, num_return_sequences=1)
+        if isinstance(out, list) and len(out) > 0:
+            # modelos T5-style: 'generated_text' ou 'text' ou 'summary_text'
+            text = out[0].get("generated_text") or out[0].get("text") or out[0].get("summary_text") or str(out[0])
+            return strip_extra_ids(text)
+        # às vezes pipeline retorna dict
+        if isinstance(out, dict):
+            text = out.get("generated_text") or out.get("text") or out.get("summary_text") or str(out)
+            return strip_extra_ids(text)
     except Exception as e:
-        # retorno vazio no fallback
-        return ""
+        print("safe_generate erro:", e)
+    return ""
 
-# ---------- Tradução PT->EN e EN->PT ----------
+# ----------------- Traduções -----------------
+# ----- em utils.py: importe strip_extra_ids no topo (se já não tiver) -----
+# from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+# (garanta que strip_extra_ids está definido neste arquivo)
+
 def translate_pt_to_en(text: str) -> str:
+    """Tradução PT -> EN com fallback. Retorna apenas o texto limpo."""
+    text = text.strip()
     if not text:
         return ""
     try:
-        # tenta Marian (rápido, eficiente)
-        pipe = safe_pipeline("translation", MARIAN_PT_EN)
-        out = pipe(text, max_length=MAX_TRANSLATE_CHARS+50)
-        txt = out[0].get("translation_text") or out[0].get("generated_text") or str(out[0])
-        return strip_extra_ids(txt)
-    except Exception:
-        # fallback para MT5/FLAN
+        # pipeline de tradução (Marian) - sensor: 'translation' funciona para modelos Marian
+        pipe = pipeline("translation", model=MODEL_MARIAN_PT_EN, device=device)
+        out = pipe(text, max_length=512)
+        # alguns pipelines retornam "translation_text"
+        translated = out[0].get("translation_text") if isinstance(out, list) else None
+        if not translated:
+            # fallback ao formato padrão
+            translated = out[0].get("generated_text") if isinstance(out, list) else str(out)
+        return strip_extra_ids(translated)
+    except Exception as e:
+        # fallback via gerador (FLAN) caso Marian falhe
         try:
-            pipe = safe_pipeline("text2text-generation", MODEL_MT5)
-            prompt = f"Translate to English: {text}"
-            return safe_generate_text(pipe, prompt, max_new_tokens=200, deterministic=True)
-        except Exception:
-            return text  # retorna original como último recurso
+            gen = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
+            prompt = f"Translate to English (short and natural): {text}"
+            out = gen(prompt, max_new_tokens=200, do_sample=False, num_return_sequences=1)
+            # extrai resultado e remove tokens extras
+            candidate = out[0].get("generated_text") or out[0].get("text") or str(out[0])
+            return strip_extra_ids(candidate)
+        except Exception as e2:
+            print("Fallback FLAN PT->EN falhou:", e2)
+            return text  # devolve original como último recurso
+
 
 def translate_en_to_pt(text: str) -> str:
+    """Tradução EN -> PT com fallback. Retorna apenas o texto limpo."""
+    text = text.strip()
     if not text:
         return ""
     try:
-        pipe = safe_pipeline("translation", MARIAN_EN_PT)
-        out = pipe(text, max_length=MAX_TRANSLATE_CHARS+50)
-        txt = out[0].get("translation_text") or out[0].get("generated_text") or str(out[0])
-        return strip_extra_ids(txt)
-    except Exception:
+        pipe = pipeline("translation", model=MODEL_MARIAN_EN_PT, device=device)
+        out = pipe(text, max_length=512)
+        translated = out[0].get("translation_text") if isinstance(out, list) else None
+        if not translated:
+            translated = out[0].get("generated_text") if isinstance(out, list) else str(out)
+        return strip_extra_ids(translated)
+    except Exception as e:
         try:
-            pipe = safe_pipeline("text2text-generation", MODEL_MT5)
-            prompt = f"Translate to Portuguese: {text}"
-            return safe_generate_text(pipe, prompt, max_new_tokens=200, deterministic=True)
-        except Exception:
+            gen = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
+            prompt = f"Translate to Portuguese (short and natural): {text}"
+            out = gen(prompt, max_new_tokens=200, do_sample=False, num_return_sequences=1)
+            candidate = out[0].get("generated_text") or out[0].get("text") or str(out[0])
+            return strip_extra_ids(candidate)
+        except Exception as e2:
+            print("Fallback FLAN EN->PT falhou:", e2)
             return text
 
-# ---------- Função para resumir texto (workflows seguros) ----------
+
+def ensure_english_if_possible(text: str) -> Tuple[str, bool]:
+    """
+    Detecta se o texto aparenta ser PT (por heurística simples).
+    Se for PT, traduz PT->EN e retorna (texto_em_ingles, True).
+    Se não, retorna (texto, False).
+    """
+    text = (text or "").strip()
+    if not text:
+        return "", False
+    pt_indicators = [" que ", " não ", " para ", " por ", " com ", " é ", " está ", " também ", "será"]
+    low = text.lower()
+    if any(tok in low for tok in pt_indicators):
+        try:
+            en = translate_pt_to_en(text)
+            return en or text, True
+        except Exception:
+            return text, False
+    return text, False
+
+# ----------------- Chunking para resumo -----------------
+def _chunk_text(text: str, max_chars: int = 3000):
+    """
+    Divide o texto em pedaços com até ~max_chars caracteres, preferindo cortar em espaços.
+    Retorna lista de strings.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    chunks = []
+    start = 0
+    L = len(text)
+    while start < L:
+        end = start + max_chars
+        if end >= L:
+            chunks.append(text[start:L].strip())
+            break
+        # tenta cortar no último espaço antes de 'end'
+        cut = text.rfind(" ", start, end)
+        if cut <= start:
+            cut = end  # força corte
+        chunks.append(text[start:cut].strip())
+        start = cut
+    return chunks
+
+# ----------------- Resumo (robusto) -----------------
 def summarize_text(text: str) -> str:
     """
     Resumir texto esportivo:
-    - Se texto > MAX_SUMMARY_CHARS: retorna aviso (não faz truncagem automática).
-    - Workflow: Portugal (PT) -> traduzir para EN -> sumarizar em EN -> traduzir de volta para PT.
-    - Usa summarizer em inglês (BART) via pipeline summarization; fallback via FLAN-MT5.
+    - Se o texto exceder MAX_SUMMARY_CHARS: trunca automaticamente aos primeiros MAX_SUMMARY_CHARS caracteres.
+    - Workflow: se for PT, traduz PT->EN -> sumariza em EN -> traduz EN->PT.
+    - Retorna o resumo (ou mensagem de erro).
     """
     txt = (text or "").strip()
     if not txt:
         return ""
 
+    # Se exceder o limite, trunca automaticamente (sem pedir confirmação)
+    truncated = False
     if len(txt) > MAX_SUMMARY_CHARS:
-        # O app quer apenas notificar — não truncaremos automaticamente
-        return f"[TOO_LONG] O texto tem {len(txt)} caracteres — excede o limite de {MAX_SUMMARY_CHARS}. Por favor reduza o texto antes de resumir."
+        txt = txt[:MAX_SUMMARY_CHARS]
+        truncated = True
 
     try:
         # Detecta se é português (heurística simples)
@@ -139,7 +193,13 @@ def summarize_text(text: str) -> str:
 
         if needs_translate and summary_en:
             summary_pt = translate_en_to_pt(summary_en)
+            # se foi truncado, acrescenta aviso curto (opcional) no retorno
+            if truncated:
+                return f"(entrada truncada a {MAX_SUMMARY_CHARS} caracteres) \n\n{summary_pt}"
             return summary_pt
-        return summary_en or "(sem resumo gerado)"
+        else:
+            if truncated:
+                return f"(entrada truncada a {MAX_SUMMARY_CHARS} caracteres) \n\n{summary_en}"
+            return summary_en or "(sem resumo gerado)"
     except Exception as e:
         return f"(erro ao gerar resumo: {e})"
