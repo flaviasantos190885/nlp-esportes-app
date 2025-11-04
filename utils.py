@@ -16,8 +16,8 @@ MAX_SUMMARY_CHARS = 4000  # <--- limite usado pelo app (exportar/importar em app
 MODEL_FLAN = "google/flan-t5-base"
 MODEL_MT5 = "google/mt5-small"
 MODEL_SUMMARIZER = "facebook/bart-large-cnn"  # summarizer em EN (fallback)
-MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-tc-big-zle-en"  # português → inglês
-MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-tc-big-en-pt"   # inglês → português
+MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"   # português -> inglês (padrão)
+MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"   # inglês -> português (padrão)
 
 
 
