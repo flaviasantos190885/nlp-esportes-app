@@ -7,82 +7,28 @@ from utils import (
     translate_pt_to_en, translate_en_to_pt,
     ensure_english_if_possible, summarize_text, MAX_SUMMARY_CHARS
 )
+import base64 
+import os     
 
-import streamlit as st
-import base64
-from pathlib import Path
-
-def add_background(image_path: str, blur_px: int = 2, dim: float = 0.20):
-    """
-    Define uma imagem de fundo em tela cheia, com leve blur e escurecimento sutil.
-    - image_path: caminho local (ex.: 'assets/fundo.jpg')
-    - blur_px: intensidade do blur (px). 0 = sem blur
-    - dim: escurecimento (0.0 a 0.6). 0.20 = 20% mais escuro
-    """
-    p = Path(image_path)
-    if not p.exists():
-        st.error(f"Imagem de fundo não encontrada: {p}")
-        return
-
-    encoded = base64.b64encode(p.read_bytes()).decode()
-
-    # CSS:
-    # - usamos .stApp::before fixo, cobrindo a tela toda (z-index -1), para o fundo ficar atrás do app.
-    # - removemos fundos padrão do Streamlit (header, container e sidebar) e deixamos translúcidos.
-    # - não aplicamos 'filter' no conteúdo (só no fundo), então nada fica embaçado por cima.
-    css = f"""
-    <style>
-    /* Fundo em tela cheia, atrás de tudo */
-    .stApp::before {{
-        content: "";
-        position: fixed;
-        inset: 0;
-        background: url("data:image/jpg;base64,{encoded}") center/cover no-repeat fixed;
-        filter: blur({blur_px}px) brightness({1 - dim});
-        z-index: -1;
-    }}
-
-    /* Deixar os planos de fundo do app transparentes */
-    [data-testid="stAppViewContainer"] {{
-        background: transparent !important;
-    }}
-    [data-testid="stHeader"] {{
-        background: transparent !important;
-    }}
-    [data-testid="stToolbar"] {{
-        background: transparent !important;
-    }}
-
-    /* Sidebar com leve vidro/fosco */
-    [data-testid="stSidebar"] > div:first-child {{
-        background: rgba(0,0,0,0.35) !important;
-        backdrop-filter: blur(4px);
-    }}
-
-    /* Conteúdo principal com caixa translúcida para leitura */
-    .block-container {{
-        background: rgba(0,0,0,0.35);
-        backdrop-filter: blur(2px);
-        border-radius: 14px;
-        padding: 2rem 2rem 2.5rem 2rem;
-    }}
-    </style>
-    """
-    st.markdown(css, unsafe_allow_html=True)
-
-# ---- CHAME AQUI (logo depois do set_page_config) ----
-add_background("assets/fundo.jpg", blur_px=2, dim=0.20)
-
+# Função para carregar imagem local e converter para base64
+@st.cache_data
+def get_base64_of_bin_file(bin_file):
+    try:
+        with open(bin_file, 'rb') as f:
+            data = f.read()
+        return base64.b64encode(data).decode()
+    except FileNotFoundError:
+        return None
 
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
 
 # ----------------- LIMITES CONFIGURÁVEIS -----------------
 # Ajuste estes valores conforme preferir
-MAX_GEN_CHARS = 800        # limite para gerar texto (tema)
-MAX_SUMMARY_CHARS = 4000   # limite para texto a ser resumido
-MAX_TRANSLATE_CHARS = 2000 # limite para tradução
-MAX_QA_CHARS = 1000        # limite para pergunta/contexto em QA
+MAX_GEN_CHARS = 800        
+MAX_SUMMARY_CHARS = 4000   
+MAX_TRANSLATE_CHARS = 2000 
+MAX_QA_CHARS = 1000        
 
 # --------------------------------------------------------
 st.sidebar.title("🏆 Menu de Funções")
@@ -95,22 +41,70 @@ task = st.sidebar.radio(
     ]
 )
 
-st.markdown(
-    """
+# ----------------- CONFIGURAÇÃO DO FUNDO (BG) -----------------
+# Coloque o nome da sua imagem de fundo aqui
+# (Ela deve estar na mesma pasta do app.py)
+IMAGE_FILE = "fundo.jpg" 
+
+img_base64 = get_base64_of_bin_file(IMAGE_FILE)
+
+if img_base64:
+    # O CSS para aplicar o fundo
+    # O 'linear-gradient' é o que cria o efeito "fosco" (escurecendo a imagem)
+    # Ajuste o '0.7' (70% de opacidade) para mais (mais escuro) ou menos (mais claro)
+    
+    page_bg_img = f"""
     <style>
-    body {
-        background-color: #111;
-        color: #ddd;
-    }
-    .stTextInput, .stTextArea, .stTextInput>div>div>input {
+    /* Target o container principal do Streamlit */
+    [data-testid="stAppViewContainer"] {{
+        background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)),
+                          url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+
+    /* Estilizando a sidebar para combinar (opcional) */
+    [data-testid="stSidebar"] {{
+        background-color: rgba(30, 30, 30, 0.8); /* Cor escura semi-transparente */
+    }}
+    
+    /* Seus estilos originais para os inputs (mantidos) */
+    .stTextInput, .stTextArea, .stTextInput>div>div>input {{
         background-color: #222;
         color: #fff;
         border-radius: 8px;
-    }
+    }}
+
+    /* Garantindo que o texto principal seja legível */
+    body {{
+        color: #ddd; 
+    }}
     </style>
-    """,
-    unsafe_allow_html=True
-)
+    """
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+else:
+    # Fallback: Se a imagem não for encontrada, usa o CSS escuro original
+    st.warning(f"Arquivo de imagem '{IMAGE_FILE}' não encontrado. Usando fundo escuro padrão.")
+    st.markdown(
+        """
+        <style>
+        body {
+            background-color: #111;
+            color: #ddd;
+        }
+        .stTextInput, .stTextArea, .stTextInput>div>div>input {
+            background-color: #222;
+            color: #fff;
+            border-radius: 8px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+# ----------------- FIM DO FUNDO (BG) -----------------
 
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
