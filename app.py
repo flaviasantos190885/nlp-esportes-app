@@ -193,7 +193,7 @@ elif task == "Resumir texto":
                     except Exception as e:
                         st.error(f"Erro ao resumir: {e}")
 
-# ======================================================
+
 # ❓ PERGUNTA / RESPOSTA
 
 elif task == "Pergunta/Resposta":
@@ -218,7 +218,7 @@ elif task == "Pergunta/Resposta":
                         context = ""
 
                     if context:
-                        # Se houver contexto, tentar extrair resposta com QA (pode exigir modelo específico disponível)
+                        
                         try:
                             qa_pipe = pipeline("question-answering", model="deepset/roberta-base-squad2", tokenizer="deepset/roberta-base-squad2", device=device)
                             ans = qa_pipe(question=question, context=context)
