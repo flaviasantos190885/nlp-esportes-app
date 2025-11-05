@@ -1,0 +1,28 @@
+/* assets/style.css */
+
+/* 1. O header (lá em cima) - transparente */
+[data-testid="stHeader"] {
+    background-color: transparent;
+}
+
+/* 2. O container do CONTEÚDO - transparente */
+[data-testid="stBlockContainer"] {
+    background-color: transparent;
+}
+
+/* 3. A sidebar (para combinar) */
+[data-testid="stSidebar"] {
+    background-color: rgba(30, 30, 30, 0.8); /* Cor escura semi-transparente */
+}
+
+/* 4. Estilos originais (inputs) */
+.stTextInput, .stTextArea, .stTextInput>div>div>input {
+    background-color: #222;
+    color: #fff;
+    border-radius: 8px;
+}
+
+/* 5. Texto principal */
+body {
+    color: #ddd; 
+}

@@ -10,6 +10,8 @@ from utils import (
 import base64 
 import os     
 
+# (Logo abaixo dos seus imports)
+
 # Função para carregar imagem local e converter para base64
 @st.cache_data
 def get_base64_of_bin_file(bin_file):
@@ -19,9 +21,61 @@ def get_base64_of_bin_file(bin_file):
         return base64.b64encode(data).decode()
     except FileNotFoundError:
         return None
+    
+
+# Função para carregar o CSS externo
+def load_css(file_name):
+    try:
+        with open(file_name) as f:
+            st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning(f"Arquivo CSS '{file_name}' não encontrado.")    
 
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
+
+# (Isso deve vir DEPOIS do st.set_page_config)
+
+# ----------------- CARREGAR ESTILOS -----------------
+
+# 1. Carrega o CSS estático (cores, transparências, inputs)
+load_css("assets/style.css")
+
+# 2. Define o fundo (BG) dinâmico
+IMAGE_FILE = os.path.join("assets", "fundo.jpg") # (mude 'fundo.jpg' se necessário)
+img_base64 = get_base64_of_bin_file(IMAGE_FILE)
+
+if img_base64:
+    # Este é o CSS *DINÂMICO* que depende da imagem
+    # Ele aplica APENAS a imagem de fundo
+    page_bg_img = f"""
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)),
+                          url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
+    }}
+    </style>
+    """
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+else:
+    # Fallback: Se a imagem ou o CSS não forem encontrados
+    st.warning(f"Arquivo de imagem '{IMAGE_FILE}' não encontrado. Usando fundo escuro padrão.")
+    st.markdown(
+        """
+        <style>
+        [data-testid="stAppViewContainer"] {
+            background-color: #111;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+# ----------------- FIM DOS ESTILOS -----------------
 
 # ----------------- LIMITES CONFIGURÁVEIS -----------------
 # Ajuste estes valores conforme preferir
@@ -31,7 +85,7 @@ MAX_TRANSLATE_CHARS = 2000
 MAX_QA_CHARS = 1000        
 
 # --------------------------------------------------------
-st.sidebar.title("🏆 Menu de Funções")
+st.sidebar.title("🏆 Menu")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
     [
@@ -41,70 +95,22 @@ task = st.sidebar.radio(
     ]
 )
 
-# ----------------- CONFIGURAÇÃO DO FUNDO (BG) -----------------
-# Coloque o nome da sua imagem de fundo aqui
-# (Ela deve estar na mesma pasta do app.py)
-IMAGE_FILE = os.path.join("assets", "fundo.jpg") 
-
-img_base64 = get_base64_of_bin_file(IMAGE_FILE)
-
-if img_base64:
-    # O CSS para aplicar o fundo
-    # O 'linear-gradient' é o que cria o efeito "fosco" (escurecendo a imagem)
-    # Ajuste o '0.7' (70% de opacidade) para mais (mais escuro) ou menos (mais claro)
-    
-    page_bg_img = f"""
+st.markdown(
+    """
     <style>
-    /* Target o container principal do Streamlit */
-    [data-testid="stAppViewContainer"] {{
-        background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.7)),
-                          url("data:image/png;base64,{img_base64}");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-attachment: fixed;
-    }}
-
-    /* Estilizando a sidebar para combinar (opcional) */
-    [data-testid="stSidebar"] {{
-        background-color: rgba(30, 30, 30, 0.8); /* Cor escura semi-transparente */
-    }}
-    
-    /* Seus estilos originais para os inputs (mantidos) */
-    .stTextInput, .stTextArea, .stTextInput>div>div>input {{
+    body {
+        background-color: #111;
+        color: #ddd;
+    }
+    .stTextInput, .stTextArea, .stTextInput>div>div>input {
         background-color: #222;
         color: #fff;
         border-radius: 8px;
-    }}
-
-    /* Garantindo que o texto principal seja legível */
-    body {{
-        color: #ddd; 
-    }}
+    }
     </style>
-    """
-    st.markdown(page_bg_img, unsafe_allow_html=True)
-
-else:
-    # Fallback: Se a imagem não for encontrada, usa o CSS escuro original
-    st.warning(f"Arquivo de imagem '{IMAGE_FILE}' não encontrado. Usando fundo escuro padrão.")
-    st.markdown(
-        """
-        <style>
-        body {
-            background-color: #111;
-            color: #ddd;
-        }
-        .stTextInput, .stTextArea, .stTextInput>div>div>input {
-            background-color: #222;
-            color: #fff;
-            border-radius: 8px;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-# ----------------- FIM DO FUNDO (BG) -----------------
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
