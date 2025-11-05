@@ -6,9 +6,4 @@ Aplicação interativa em **Streamlit** para:
 - Resumir textos
 - Perguntas e respostas baseadas em contexto ou Wikipedia
 
-### Como rodar localmente
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
+https://nlp-esportes-app.streamlit.app/

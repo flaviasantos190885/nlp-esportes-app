@@ -95,22 +95,6 @@ task = st.sidebar.radio(
     ]
 )
 
-# st.markdown(
-#     """
-#     <style>
-#     body {
-#         background-color: #111;
-#         color: #ddd;
-#     }
-#     .stTextInput, .stTextArea, .stTextInput>div>div>input {
-#         background-color: #222;
-#         color: #fff;
-#         border-radius: 8px;
-#     }
-#     </style>
-#     """,
-#     unsafe_allow_html=True
-# )
 
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
