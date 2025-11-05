@@ -164,56 +164,6 @@ elif task == "Resumir texto":
                         st.error(f"Erro ao resumir: {e}")
 
 # ======================================================
-# 🌎 TRADUÇÃO PT → EN
-# ======================================================
-elif task == "Traduzir PT→EN":
-    st.header("🌎 Tradução Português → Inglês")
-    st.write(f"Digite um texto em português (máx {MAX_TRANSLATE_CHARS} caracteres).")
-
-    entrada = st.text_area("🗣️ Texto em português:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Exemplo: O futebol é um esporte muito popular no Brasil.")
-    
-    if st.button("Traduzir para inglês"):
-        ok, msg = check_input_length(entrada, MAX_TRANSLATE_CHARS)
-        if not ok:
-            st.warning(msg)
-        else:
-            with st.spinner("Traduzindo..."):
-                try:
-                    result = translate_pt_to_en(entrada)
-                    if result:
-                        st.success("✅ Tradução:")
-                        st.write(result)
-                    else:
-                        st.warning("Tradução vazia. Tente novamente.")
-                except Exception as e:
-                    st.error(f"Erro na tradução: {str(e).splitlines()[0]}")
-
-# ======================================================
-# 🌍 TRADUÇÃO EN → PT
-# ======================================================
-elif task == "Traduzir EN→PT":
-    st.header("🌍 Tradução Inglês → Português")
-    st.write(f"Digite um texto em inglês (máx {MAX_TRANSLATE_CHARS} caracteres).")
-
-    entrada = st.text_area("🗣️ Texto em inglês:", height=150, max_chars=MAX_TRANSLATE_CHARS, placeholder="Example: Volleyball is a very popular sport in Brazil.")
-
-    if st.button("Traduzir para português"):
-        ok, msg = check_input_length(entrada, MAX_TRANSLATE_CHARS)
-        if not ok:
-            st.warning(msg)
-        else:
-            with st.spinner("Traduzindo..."):
-                try:
-                    resultado = translate_en_to_pt(entrada)
-                    if resultado:
-                        st.success("✅ Tradução:")
-                        st.write(resultado)
-                    else:
-                        st.warning("Tradução vazia. Tente novamente.")
-                except Exception as e:
-                    st.error(f"Erro na tradução: {str(e).splitlines()[0]}")
-
-# ======================================================
 # ❓ PERGUNTA / RESPOSTA
 # ======================================================
 elif task == "Pergunta/Resposta":
