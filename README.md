@@ -4,7 +4,6 @@ Aplicação interativa em **Streamlit** para:
 
 - Gerar textos sobre esportes usando a **Wikipedia**
 - Resumir textos
-- Traduzir (PT↔EN)
 - Perguntas e respostas baseadas em contexto ou Wikipedia
 
 ### Como rodar localmente

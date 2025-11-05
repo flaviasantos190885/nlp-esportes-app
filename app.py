@@ -27,8 +27,6 @@ task = st.sidebar.radio(
     [
         "Gerar texto (Wikipedia)",
         "Resumir texto",
-        "Traduzir PT→EN",
-        "Traduzir EN→PT",
         "Pergunta/Resposta"
     ]
 )
