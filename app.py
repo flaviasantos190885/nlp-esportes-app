@@ -242,7 +242,7 @@ elif task == "Pergunta/Resposta":
                             else:
                                 st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
                     else:
-                        # sem contexto: buscar na Wikipedia
+                        
                         wikipedia.set_lang("pt")
                         hits = wikipedia.search(question, results=3)
                         if hits:
