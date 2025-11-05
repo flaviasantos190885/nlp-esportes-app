@@ -7,6 +7,42 @@ from utils import (
     translate_pt_to_en, translate_en_to_pt,
     ensure_english_if_possible, summarize_text, MAX_SUMMARY_CHARS
 )
+import streamlit as st
+import base64
+
+# ---------- FUNÇÃO PARA COLOCAR FUNDO ----------
+def add_bg(image_file):
+    with open(image_file, "rb") as f:
+        encoded = base64.b64encode(f.read()).decode()
+
+    css = f"""
+    <style>
+    [data-testid="stAppViewContainer"] > .main {{
+        background-image: url("data:image/jpg;base64,{encoded}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+        filter: blur(3px) brightness(0.8);
+    }}
+
+    /* Conteúdo normal sem blur */
+    [data-testid="stAppViewContainer"] .block-container {{
+        backdrop-filter: blur(0px);
+        background: rgba(0,0,0,0.40);  
+        padding: 2rem;
+        border-radius: 12px;
+    }}
+
+    /* Ajuste do texto */
+    h1, h2, h3, p, label, span {{
+        color: #f0f0f0 !important;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+
+# Ativa o fundo
+add_bg("assets/fundo.jpg")
 
 
 
@@ -168,7 +204,7 @@ elif task == "Pergunta/Resposta":
     st.header("❓ Perguntas e Respostas sobre Esportes")
     st.write(f"Digite uma pergunta esportiva (máx {MAX_QA_CHARS} caracteres). Se quiser fornecer contexto, cole o contexto e na última linha coloque a pergunta.")
 
-    entrada = st.text_area("📝 Contexto + Pergunta (ou só a pergunta):", height=180, max_chars=MAX_QA_CHARS, placeholder="Ex: 'Breve contexto...\\n\\nQuem ganhou a Copa de 2002?'")
+    entrada = st.text_area("📝 Contexto + Pergunta (ou só a pergunta):", height=180, max_chars=MAX_QA_CHARS, placeholder="Ex: Quem ganhou a Copa de 2002?'")
 
     if st.button("Responder"):
         ok, msg = check_input_length(entrada, MAX_QA_CHARS)
