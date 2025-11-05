@@ -78,7 +78,7 @@ st.sidebar.title("🏆 Menu")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
     [
-        "Gerar texto",
+        "Gerar texto (Wikipedia)",
         "Resumir texto",
         "Pergunta/Resposta"
     ]
@@ -193,7 +193,7 @@ elif task == "Resumir texto":
                     except Exception as e:
                         st.error(f"Erro ao resumir: {e}")
 
-
+# ======================================================
 # ❓ PERGUNTA / RESPOSTA
 
 elif task == "Pergunta/Resposta":
@@ -218,7 +218,7 @@ elif task == "Pergunta/Resposta":
                         context = ""
 
                     if context:
-                        
+                        # Se houver contexto, tentar extrair resposta com QA (pode exigir modelo específico disponível)
                         try:
                             qa_pipe = pipeline("question-answering", model="deepset/roberta-base-squad2", tokenizer="deepset/roberta-base-squad2", device=device)
                             ans = qa_pipe(question=question, context=context)
@@ -231,7 +231,7 @@ elif task == "Pergunta/Resposta":
                                 st.warning("Não foi encontrada resposta direta no contexto. Tentando fallback via Wikipedia...")
                                 raise Exception("Resposta vazia do QA")
                         except Exception:
-                            
+                            # fallback via Wikipedia
                             wikipedia.set_lang("pt")
                             hits = wikipedia.search(question, results=3)
                             if hits:
@@ -242,7 +242,7 @@ elif task == "Pergunta/Resposta":
                             else:
                                 st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
                     else:
-                        
+                        # sem contexto: buscar na Wikipedia
                         wikipedia.set_lang("pt")
                         hits = wikipedia.search(question, results=3)
                         if hits:
