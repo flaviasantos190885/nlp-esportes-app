@@ -10,9 +10,6 @@ from utils import (
 import base64 
 import os     
 
-# (Logo abaixo dos seus imports)
-
-# Função para carregar imagem local e converter para base64
 @st.cache_data
 def get_base64_of_bin_file(bin_file):
     try:
@@ -23,7 +20,6 @@ def get_base64_of_bin_file(bin_file):
         return None
     
 
-# Função para carregar o CSS externo
 def load_css(file_name):
     try:
         with open(file_name) as f:
@@ -34,20 +30,16 @@ def load_css(file_name):
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
 
-# (Isso deve vir DEPOIS do st.set_page_config)
 
 # ----------------- CARREGAR ESTILOS -----------------
 
-# 1. Carrega o CSS estático (cores, transparências, inputs)
 load_css("assets/style.css")
 
-# 2. Define o fundo (BG) dinâmico
-IMAGE_FILE = os.path.join("assets", "fundo.jpg") # (mude 'fundo.jpg' se necessário)
+IMAGE_FILE = os.path.join("assets", "fundo.jpg") 
 img_base64 = get_base64_of_bin_file(IMAGE_FILE)
 
 if img_base64:
-    # Este é o CSS *DINÂMICO* que depende da imagem
-    # Ele aplica APENAS a imagem de fundo
+
     page_bg_img = f"""
     <style>
     [data-testid="stAppViewContainer"] {{
@@ -63,7 +55,7 @@ if img_base64:
     st.markdown(page_bg_img, unsafe_allow_html=True)
 
 else:
-    # Fallback: Se a imagem ou o CSS não forem encontrados
+    
     st.warning(f"Arquivo de imagem '{IMAGE_FILE}' não encontrado. Usando fundo escuro padrão.")
     st.markdown(
         """
@@ -75,10 +67,7 @@ else:
         """,
         unsafe_allow_html=True
     )
-# ----------------- FIM DOS ESTILOS -----------------
 
-# ----------------- LIMITES CONFIGURÁVEIS -----------------
-# Ajuste estes valores conforme preferir
 MAX_GEN_CHARS = 800        
 MAX_SUMMARY_CHARS = 4000   
 MAX_TRANSLATE_CHARS = 2000 
@@ -104,7 +93,6 @@ para gerar textos, resumos, traduções e respostas sobre temas **esportivos**.
 
 device = 0 if torch.cuda.is_available() else -1
 
-# ---------------- Função de checagem (servidor) ----------------
 def check_input_length(text: str, max_chars: int):
     if not text or not text.strip():
         return False, "Entrada vazia."
