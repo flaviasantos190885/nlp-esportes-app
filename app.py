@@ -101,16 +101,14 @@ def check_input_length(text: str, max_chars: int):
         return False, f"⚠️ Texto muito longo: {n} caracteres (máx permitido: {max_chars}). Por favor reduza o texto."
     return True, ""
 
-# ---------------- CONTEÚDO DINÂMICO ----------------
 
-# ======================================================
 # 📰 GERAÇÃO DE TEXTO (Wikipedia)
-# ======================================================
+
 if task == "Gerar texto (Wikipedia)":
     st.header("📰 Geração de texto com base na Wikipedia")
     st.write(f"Digite o nome de um esporte/tema (máx {MAX_GEN_CHARS} caracteres). A aplicação tentará buscar na Wikipedia e, se não encontrar, gerará um texto com o modelo.")
 
-    # front-end limit (st.text_input não tem max_chars - usamos text_area para forçar limite)
+
     entrada = st.text_area("🏷️ Tema esportivo:", height=80, max_chars=MAX_GEN_CHARS, placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
 
     if st.button("Gerar texto"):
@@ -148,11 +146,9 @@ if task == "Gerar texto (Wikipedia)":
                 except Exception as e:
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
 
-# ======================================================
-# ✂️ RESUMIR TEXTO (versão: permite colar livremente e opcionalmente truncar)
-# ======================================================
 
-# ------------------------------------------------------
+# ✂️ RESUMIR TEXTO 
+
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
     st.write("""
@@ -160,19 +156,19 @@ elif task == "Resumir texto":
     O modelo irá gerar um **resumo objetivo e coerente**.
     """)
 
-    # limite máximo que você quer impor
+
     MAX_SUMMARY_CHARS = 4000
 
-    # Textarea SEM max_chars para permitir colar qualquer tamanho
+
     entrada = st.text_area(
         "📝 Texto para resumir:",
         height=300,
         placeholder="Cole aqui o texto esportivo completo (notícia, descrição de jogo, etc.)..."
     )
 
-    # contador de caracteres à direita (usando colunas para parear com o campo)
+    
     c1, c2 = st.columns([8, 1])
-    c1.write("")  # espaço vazio para alinhar
+    c1.write("")  
     c2.markdown(f"<div style='text-align: right; color: #bbb;'>{len(entrada)}/{MAX_SUMMARY_CHARS}</div>", unsafe_allow_html=True)
 
     if st.button("Gerar resumo"):
