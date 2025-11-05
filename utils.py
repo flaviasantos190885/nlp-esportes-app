@@ -1,10 +1,9 @@
-# utils.py
 import re
 try:
     import torch
     device = 0 if torch.cuda.is_available() else -1
 except Exception as _e:
-    # PyTorch pode não estar disponível no ambiente (ex.: Streamlit Cloud)
+   
     print("Aviso: PyTorch não disponível ou falha ao carregar (DLL). Seguir usando device CPU. Erro:", _e)
     torch = None
     device = -1
@@ -12,18 +11,17 @@ except Exception as _e:
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 
 # ----- CONFIG ----- 
-MAX_SUMMARY_CHARS = 4000  # <--- limite usado pelo app (exportar/importar em app.py)
+MAX_SUMMARY_CHARS = 4000  
 MODEL_FLAN = "google/flan-t5-base"
 MODEL_MT5 = "google/mt5-small"
-MODEL_SUMMARIZER = "facebook/bart-large-cnn"  # summarizer em EN (fallback)
-MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"   # português -> inglês (padrão)
-MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"   # inglês -> português (padrão)
+MODEL_SUMMARIZER = "facebook/bart-large-cnn"  
+MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"   
+MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"   
 
 
 
 _loaded = {}
 
-# ---------- helpers ----------
 def strip_extra_ids(text: str) -> str:
     if not text:
         return ""
@@ -57,7 +55,6 @@ def safe_generate(pipe, prompt, max_new_tokens=200, deterministic=True):
         return ""
 
 # ---------- Traduções ----------
-# substitua as duas funções de tradução por este bloco no utils.py
 
 def _extract_translation_result(res):
     """
@@ -66,23 +63,23 @@ def _extract_translation_result(res):
     try:
         if res is None:
             return ""
-        # pipeline('translation') normalmente retorna [{'translation_text': '...'}]
+
         if isinstance(res, list) and len(res) > 0:
             first = res[0]
             if isinstance(first, dict):
-                # chaves possíveis
+  
                 for k in ("translation_text", "generated_text", "text", "summary_text"):
                     if k in first and first[k]:
                         return strip_extra_ids(str(first[k]))
-                # nada encontrado na dict -> fallback para string do objeto
+
                 return strip_extra_ids(str(first))
             else:
-                # lista de strings ou outro
+ 
                 return strip_extra_ids(str(first))
-        # se receberam uma string simples
+
         if isinstance(res, str):
             return strip_extra_ids(res)
-        # encapsulamentos inesperados -> str()
+
         return strip_extra_ids(str(res))
     except Exception as e:
         print("DEBUG _extract_translation_result erro:", e)
@@ -97,12 +94,11 @@ def _is_bad_translation(s: str) -> bool:
     if not s:
         return True
     ss = s.strip()
-    # só pontuação
+
     if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in ss):
         return True
-    # poucas letras (ajuste se quiser)
     letters = sum(1 for ch in ss if ch.isalpha())
-    if letters < 2:   # frase muito curta / inválida
+    if letters < 2:    
         return True
     return False
 
@@ -131,7 +127,6 @@ def translate_en_to_pt(text: str) -> str:
         print("Erro EN→PT:", e)
         return "(erro na tradução — tente novamente)"
 
-    # 3) fallback FLAN
     try:
         flan = safe_pipeline("text2text-generation", MODEL_FLAN)
         if flan:
@@ -157,7 +152,6 @@ def ensure_english_if_possible(text: str):
             return text, False
     return text, False
 
-# ---------- Resumo ----------
 def summarize_text(text: str) -> str:
     """
     Versão melhorada:
@@ -169,7 +163,6 @@ def summarize_text(text: str) -> str:
     if not text or not text.strip():
         return ""
 
-    # modelos / parâmetros
     MODEL_SUMMARY = "facebook/bart-large-cnn"
     MODEL_MT5 = "google/mt5-small"
     MODEL_FLAN = "google/flan-t5-base"
@@ -180,30 +173,27 @@ def summarize_text(text: str) -> str:
         if not s:
             return False
         s2 = s.strip()
-        # rejeita só pontuação (ex: ".", "..." etc)
+       
         if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in s2):
             return False
-        # tamanho mínimo razoável (número de letras)
+
         letters = sum(1 for ch in s2 if ch.isalpha())
-        if letters < 20:  # ajuste se quiser mais ou menos sensibilidade
+        if letters < 20:  
             return False
         return True
 
     txt = text.strip()
 
-    # helper para mostrar raw output nos logs
     def debug_log(prefix, obj):
         try:
             print(f"[summarize_text DEBUG] {prefix}: {repr(obj)[:1000]}")
         except Exception:
             print(f"[summarize_text DEBUG] {prefix}: (erro ao mostrar)")
 
-    # 1) pipeline summarization (preferível)
     try:
         try:
             summarizer = pipeline("summarization", model=MODEL_SUMMARY, tokenizer=MODEL_SUMMARY, device=device)
             out = summarizer(txt, max_length=MAX_TOKENS_SUMMARY, min_length=MIN_TOKENS_SUMMARY, do_sample=False)
-            # normalmente [{'summary_text': '...'}]
             if isinstance(out, list) and out and isinstance(out[0], dict):
                 summary_text = out[0].get("summary_text", "") or ""
             else:
@@ -219,7 +209,6 @@ def summarize_text(text: str) -> str:
     except Exception as e:
         print("summarize_text: erro inesperado no bloco BART:", e)
 
-    # 2) fallback: MT5 text2text
     try:
         try:
             mtpipe = pipeline("text2text-generation", model=MODEL_MT5, tokenizer=MODEL_MT5, device=device)
@@ -240,7 +229,6 @@ def summarize_text(text: str) -> str:
     except Exception as e:
         print("summarize_text: erro inesperado no bloco MT5:", e)
 
-    # 3) fallback: FLAN (instruído)
     try:
         try:
             flan = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
@@ -261,6 +249,5 @@ def summarize_text(text: str) -> str:
     except Exception as e:
         print("summarize_text: erro inesperado no bloco FLAN:", e)
 
-    # nada válido — retorna mensagem curta para a UI e já deixou debug nos logs
     print("summarize_text: nenhum método gerou resumo válido. Verifique os logs debug acima.")
     return "(sem resumo gerado — consulte os logs do servidor para detalhes)"
