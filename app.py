@@ -104,7 +104,7 @@ def check_input_length(text: str, max_chars: int):
 
 # 📰 GERAÇÃO DE TEXTO (Wikipedia)
 
-if task == "Gerar texto":
+if task == "Gerar texto (Wikipedia)":
     st.header("📰 Geração de texto com base na Wikipedia")
     st.write(f"Digite o nome de um esporte/tema (máx {MAX_GEN_CHARS} caracteres). A aplicação tentará buscar na Wikipedia e, se não encontrar, gerará um texto com o modelo.")
 
