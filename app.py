@@ -44,7 +44,7 @@ task = st.sidebar.radio(
 # ----------------- CONFIGURAÇÃO DO FUNDO (BG) -----------------
 # Coloque o nome da sua imagem de fundo aqui
 # (Ela deve estar na mesma pasta do app.py)
-IMAGE_FILE = "fundo.jpg" 
+IMAGE_FILE = os.path.join("assets", "fundo.jpg") 
 
 img_base64 = get_base64_of_bin_file(IMAGE_FILE)
 
