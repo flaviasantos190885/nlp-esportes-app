@@ -78,7 +78,7 @@ st.sidebar.title("🏆 Menu")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
     [
-        "Gerar texto",
+        "Gerar texto (Wikipedia)",
         "Resumir texto",
         "Pergunta/Resposta"
     ]
