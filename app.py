@@ -7,43 +7,71 @@ from utils import (
     translate_pt_to_en, translate_en_to_pt,
     ensure_english_if_possible, summarize_text, MAX_SUMMARY_CHARS
 )
+
 import streamlit as st
 import base64
+from pathlib import Path
 
-# ---------- FUNÇÃO PARA COLOCAR FUNDO ----------
-def add_bg(image_file):
-    with open(image_file, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode()
+def add_background(image_path: str, blur_px: int = 2, dim: float = 0.20):
+    """
+    Define uma imagem de fundo em tela cheia, com leve blur e escurecimento sutil.
+    - image_path: caminho local (ex.: 'assets/fundo.jpg')
+    - blur_px: intensidade do blur (px). 0 = sem blur
+    - dim: escurecimento (0.0 a 0.6). 0.20 = 20% mais escuro
+    """
+    p = Path(image_path)
+    if not p.exists():
+        st.error(f"Imagem de fundo não encontrada: {p}")
+        return
 
+    encoded = base64.b64encode(p.read_bytes()).decode()
+
+    # CSS:
+    # - usamos .stApp::before fixo, cobrindo a tela toda (z-index -1), para o fundo ficar atrás do app.
+    # - removemos fundos padrão do Streamlit (header, container e sidebar) e deixamos translúcidos.
+    # - não aplicamos 'filter' no conteúdo (só no fundo), então nada fica embaçado por cima.
     css = f"""
     <style>
-    [data-testid="stAppViewContainer"] > .main {{
-        background-image: url("data:image/jpg;base64,{encoded}");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-        filter: blur(3px) brightness(0.8);
+    /* Fundo em tela cheia, atrás de tudo */
+    .stApp::before {{
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: url("data:image/jpg;base64,{encoded}") center/cover no-repeat fixed;
+        filter: blur({blur_px}px) brightness({1 - dim});
+        z-index: -1;
     }}
 
-    /* Conteúdo normal sem blur */
-    [data-testid="stAppViewContainer"] .block-container {{
-        backdrop-filter: blur(0px);
-        background: rgba(0,0,0,0.40);  
-        padding: 2rem;
-        border-radius: 12px;
+    /* Deixar os planos de fundo do app transparentes */
+    [data-testid="stAppViewContainer"] {{
+        background: transparent !important;
+    }}
+    [data-testid="stHeader"] {{
+        background: transparent !important;
+    }}
+    [data-testid="stToolbar"] {{
+        background: transparent !important;
     }}
 
-    /* Ajuste do texto */
-    h1, h2, h3, p, label, span {{
-        color: #f0f0f0 !important;
+    /* Sidebar com leve vidro/fosco */
+    [data-testid="stSidebar"] > div:first-child {{
+        background: rgba(0,0,0,0.35) !important;
+        backdrop-filter: blur(4px);
+    }}
+
+    /* Conteúdo principal com caixa translúcida para leitura */
+    .block-container {{
+        background: rgba(0,0,0,0.35);
+        backdrop-filter: blur(2px);
+        border-radius: 14px;
+        padding: 2rem 2rem 2.5rem 2rem;
     }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
 
-# Ativa o fundo
-add_bg("assets/fundo.jpg")
-
+# ---- CHAME AQUI (logo depois do set_page_config) ----
+add_background("assets/fundo.jpg", blur_px=2, dim=0.20)
 
 
 # ---------------- CONFIGURAÇÃO INICIAL ----------------
