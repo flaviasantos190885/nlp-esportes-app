@@ -1,3 +1,4 @@
+#app.py
 import streamlit as st
 from transformers import pipeline
 import wikipedia
@@ -9,7 +10,9 @@ from utils import (
 import base64 
 import os     
 
+# (Logo abaixo dos seus imports)
 
+# Função para carregar imagem local e converter para base64
 @st.cache_data
 def get_base64_of_bin_file(bin_file):
     try:
@@ -20,6 +23,7 @@ def get_base64_of_bin_file(bin_file):
         return None
     
 
+# Função para carregar o CSS externo
 def load_css(file_name):
     try:
         with open(file_name) as f:
@@ -27,18 +31,23 @@ def load_css(file_name):
     except FileNotFoundError:
         st.warning(f"Arquivo CSS '{file_name}' não encontrado.")    
 
-
+# ---------------- CONFIGURAÇÃO INICIAL ----------------
 st.set_page_config(page_title="NLP Esportes", layout="wide", page_icon="🏐")
+
+# (Isso deve vir DEPOIS do st.set_page_config)
 
 # ----------------- CARREGAR ESTILOS -----------------
 
+# 1. Carrega o CSS estático (cores, transparências, inputs)
 load_css("assets/style.css")
 
-IMAGE_FILE = os.path.join("assets", "fundo.jpg") 
+# 2. Define o fundo (BG) dinâmico
+IMAGE_FILE = os.path.join("assets", "fundo.jpg") # (mude 'fundo.jpg' se necessário)
 img_base64 = get_base64_of_bin_file(IMAGE_FILE)
 
 if img_base64:
-
+    # Este é o CSS *DINÂMICO* que depende da imagem
+    # Ele aplica APENAS a imagem de fundo
     page_bg_img = f"""
     <style>
     [data-testid="stAppViewContainer"] {{
@@ -54,7 +63,7 @@ if img_base64:
     st.markdown(page_bg_img, unsafe_allow_html=True)
 
 else:
-
+    # Fallback: Se a imagem ou o CSS não forem encontrados
     st.warning(f"Arquivo de imagem '{IMAGE_FILE}' não encontrado. Usando fundo escuro padrão.")
     st.markdown(
         """
@@ -66,17 +75,21 @@ else:
         """,
         unsafe_allow_html=True
     )
+# ----------------- FIM DOS ESTILOS -----------------
 
+# ----------------- LIMITES CONFIGURÁVEIS -----------------
+# Ajuste estes valores conforme preferir
 MAX_GEN_CHARS = 800        
 MAX_SUMMARY_CHARS = 4000   
 MAX_TRANSLATE_CHARS = 2000 
 MAX_QA_CHARS = 1000        
 
+# --------------------------------------------------------
 st.sidebar.title("🏆 Menu")
 task = st.sidebar.radio(
     "Escolha uma tarefa:",
     [
-        "Gerar texto",
+        "Gerar texto (Wikipedia)",
         "Resumir texto",
         "Pergunta/Resposta"
     ]
@@ -91,7 +104,7 @@ para gerar textos, resumos, traduções e respostas sobre temas **esportivos**.
 
 device = 0 if torch.cuda.is_available() else -1
 
-
+# ---------------- Função de checagem (servidor) ----------------
 def check_input_length(text: str, max_chars: int):
     if not text or not text.strip():
         return False, "Entrada vazia."
@@ -100,13 +113,16 @@ def check_input_length(text: str, max_chars: int):
         return False, f"⚠️ Texto muito longo: {n} caracteres (máx permitido: {max_chars}). Por favor reduza o texto."
     return True, ""
 
+# ---------------- CONTEÚDO DINÂMICO ----------------
 
+# ======================================================
 # 📰 GERAÇÃO DE TEXTO (Wikipedia)
-
+# ======================================================
 if task == "Gerar texto (Wikipedia)":
     st.header("📰 Geração de texto com base na Wikipedia")
     st.write(f"Digite o nome de um esporte/tema (máx {MAX_GEN_CHARS} caracteres). A aplicação tentará buscar na Wikipedia e, se não encontrar, gerará um texto com o modelo.")
 
+    # front-end limit (st.text_input não tem max_chars - usamos text_area para forçar limite)
     entrada = st.text_area("🏷️ Tema esportivo:", height=80, max_chars=MAX_GEN_CHARS, placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
 
     if st.button("Gerar texto"):
@@ -144,9 +160,11 @@ if task == "Gerar texto (Wikipedia)":
                 except Exception as e:
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
 
-
+# ======================================================
 # ✂️ RESUMIR TEXTO (versão: permite colar livremente e opcionalmente truncar)
+# ======================================================
 
+# ------------------------------------------------------
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
     st.write("""
@@ -154,19 +172,19 @@ elif task == "Resumir texto":
     O modelo irá gerar um **resumo objetivo e coerente**.
     """)
 
-
+    # limite máximo que você quer impor
     MAX_SUMMARY_CHARS = 4000
 
-
+    # Textarea SEM max_chars para permitir colar qualquer tamanho
     entrada = st.text_area(
         "📝 Texto para resumir:",
         height=300,
         placeholder="Cole aqui o texto esportivo completo (notícia, descrição de jogo, etc.)..."
     )
 
-
+    # contador de caracteres à direita (usando colunas para parear com o campo)
     c1, c2 = st.columns([8, 1])
-    c1.write("")  
+    c1.write("")  # espaço vazio para alinhar
     c2.markdown(f"<div style='text-align: right; color: #bbb;'>{len(entrada)}/{MAX_SUMMARY_CHARS}</div>", unsafe_allow_html=True)
 
     if st.button("Gerar resumo"):
@@ -175,10 +193,10 @@ elif task == "Resumir texto":
         else:
             n = len(entrada)
             if n > MAX_SUMMARY_CHARS:
-
+                # mensagem clara e retornamos (não gera resumo)
                 st.error(f"O texto tem {n} caracteres — o máximo permitido é {MAX_SUMMARY_CHARS}. Reduza o texto e tente novamente.")
             else:
-
+                # prossegue com resumo (usa summarize_text do utils.py)
                 with st.spinner("Resumindo texto..."):
                     try:
                         from utils import summarize_text
@@ -191,9 +209,9 @@ elif task == "Resumir texto":
                     except Exception as e:
                         st.error(f"Erro ao resumir: {e}")
 
-
+# ======================================================
 # ❓ PERGUNTA / RESPOSTA
-
+# ======================================================
 elif task == "Pergunta/Resposta":
     st.header("❓ Perguntas e Respostas sobre Esportes")
     st.write(f"Digite uma pergunta esportiva (máx {MAX_QA_CHARS} caracteres). Se quiser fornecer contexto, cole o contexto e na última linha coloque a pergunta.")
@@ -216,7 +234,7 @@ elif task == "Pergunta/Resposta":
                         context = ""
 
                     if context:
-
+                        # Se houver contexto, tentar extrair resposta com QA (pode exigir modelo específico disponível)
                         try:
                             qa_pipe = pipeline("question-answering", model="deepset/roberta-base-squad2", tokenizer="deepset/roberta-base-squad2", device=device)
                             ans = qa_pipe(question=question, context=context)
@@ -229,7 +247,7 @@ elif task == "Pergunta/Resposta":
                                 st.warning("Não foi encontrada resposta direta no contexto. Tentando fallback via Wikipedia...")
                                 raise Exception("Resposta vazia do QA")
                         except Exception:
-
+                            # fallback via Wikipedia
                             wikipedia.set_lang("pt")
                             hits = wikipedia.search(question, results=3)
                             if hits:
@@ -240,7 +258,7 @@ elif task == "Pergunta/Resposta":
                             else:
                                 st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
                     else:
-
+                        # sem contexto: buscar na Wikipedia
                         wikipedia.set_lang("pt")
                         hits = wikipedia.search(question, results=3)
                         if hits:
@@ -252,3 +270,4 @@ elif task == "Pergunta/Resposta":
                             st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
                 except Exception as e:
                     st.error(f"Erro ao buscar resposta: {str(e).splitlines()[0]}")
+
