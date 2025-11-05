@@ -231,7 +231,7 @@ elif task == "Pergunta/Resposta":
                                 st.warning("Não foi encontrada resposta direta no contexto. Tentando fallback via Wikipedia...")
                                 raise Exception("Resposta vazia do QA")
                         except Exception:
-                            # fallback via Wikipedia
+                            
                             wikipedia.set_lang("pt")
                             hits = wikipedia.search(question, results=3)
                             if hits:
