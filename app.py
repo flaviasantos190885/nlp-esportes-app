@@ -84,6 +84,19 @@ task = st.sidebar.radio(
     ]
 )
 
+st.sidebar.markdown("---") 
+st.sidebar.markdown(
+    """
+    <div class="footer-text">
+        <strong>Trabalho Final</strong><br>
+        TOPICOS ESPECIAIS EM GESTÃO DA TECNOLOGIA DA INFORMAÇÃO<br><br>
+        <strong>Alunos:</strong><br>
+        Flávia dos Santos Silva<br>
+        Jeferson Silva Santos
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("🏐 Aplicação NLP — Domínio: Esportes")
 st.markdown("""
