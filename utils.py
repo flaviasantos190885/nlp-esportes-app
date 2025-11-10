@@ -17,7 +17,8 @@ warnings.filterwarnings("ignore")
 MAX_SUMMARY_CHARS = 4000  
 MODEL_FLAN = "google/flan-t5-base"
 MODEL_MT5 = "google/mt5-small"
-MODEL_SUMMARIZER = "facebook/bart-large-cnn"  
+# MODEL_SUMMARIZER = "facebook/bart-large-cnn"  
+MODEL_SUMMARIZER = "sshleifer/distilbart-cnn-12-6"
 MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"   
 MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"   
 
