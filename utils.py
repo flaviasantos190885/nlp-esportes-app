@@ -1,14 +1,17 @@
 import re
+import warnings
+
 try:
     import torch
     device = 0 if torch.cuda.is_available() else -1
 except Exception as _e:
-   
     print("Aviso: PyTorch não disponível ou falha ao carregar (DLL). Seguir usando device CPU. Erro:", _e)
     torch = None
     device = -1
 
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
+
+warnings.filterwarnings("ignore")
 
 # ----- CONFIG ----- 
 MAX_SUMMARY_CHARS = 4000  
@@ -18,16 +21,35 @@ MODEL_SUMMARIZER = "facebook/bart-large-cnn"
 MODEL_MARIAN_PT_EN = "Helsinki-NLP/opus-mt-pt-en"   
 MODEL_MARIAN_EN_PT = "Helsinki-NLP/opus-mt-en-pt"   
 
-
-
 _loaded = {}
 
+# ---------- util helpers ----------
+
 def strip_extra_ids(text: str) -> str:
+    """Remove tokens sentinel <extra_id_n> e normaliza espaços."""
     if not text:
         return ""
-    text = re.sub(r"<extra_id_\d+>", "", text)
+    text = re.sub(r"<extra_id_\d+>", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+def is_trivial_text(s: str) -> bool:
+    """Detecta saídas triviais como '.' ou strings com poucos caracteres/letras significativas."""
+    if not s:
+        return True
+    s2 = s.strip()
+    # se só pontuação / símbolos
+    if all(ch in " \n\t\r.,;:!?-—()[]{}\"'«»" for ch in s2):
+        return True
+    # conta letras relevantes
+    letters = sum(1 for ch in s2 if ch.isalpha())
+    if letters < 5:  # menos de 5 letras => provavelmente muito curto
+        return True
+    # conta palavras alfanuméricas
+    words = re.findall(r"\w+", s2)
+    if len(words) <= 2:
+        return True
+    return False
 
 def safe_pipeline(task, model_name):
     """Cria pipeline com tratamento simples de erros (retorna None se falhar)."""
@@ -38,6 +60,7 @@ def safe_pipeline(task, model_name):
         return None
 
 def safe_generate(pipe, prompt, max_new_tokens=200, deterministic=True):
+    """Gera texto a partir de um pipeline text2text gerenciando erros e normalizando saída."""
     if pipe is None:
         return ""
     try:
@@ -48,8 +71,14 @@ def safe_generate(pipe, prompt, max_new_tokens=200, deterministic=True):
             gen_kwargs.update({"do_sample": True, "top_p": 0.92, "temperature": 0.8})
         out = pipe(prompt, **gen_kwargs, num_return_sequences=1)
         if isinstance(out, list) and out:
-            return strip_extra_ids(out[0].get("generated_text") or out[0].get("text") or str(out[0]))
-        return str(out)
+            # tenta extrair campos comuns
+            first = out[0]
+            if isinstance(first, dict):
+                for k in ("generated_text","summary_text","translation_text","text"):
+                    if k in first and first[k]:
+                        return strip_extra_ids(str(first[k]))
+            return strip_extra_ids(str(first))
+        return strip_extra_ids(str(out))
     except Exception as e:
         print("safe_generate erro:", e)
         return ""
@@ -67,14 +96,11 @@ def _extract_translation_result(res):
         if isinstance(res, list) and len(res) > 0:
             first = res[0]
             if isinstance(first, dict):
-  
                 for k in ("translation_text", "generated_text", "text", "summary_text"):
                     if k in first and first[k]:
                         return strip_extra_ids(str(first[k]))
-
                 return strip_extra_ids(str(first))
             else:
- 
                 return strip_extra_ids(str(first))
 
         if isinstance(res, str):
@@ -88,166 +114,268 @@ def _extract_translation_result(res):
         except Exception:
             return ""
 
-
 def _is_bad_translation(s: str) -> bool:
     """Detecta saídas inválidas: vazias, só pontuação ou muito curtas."""
     if not s:
         return True
     ss = s.strip()
-
     if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in ss):
         return True
     letters = sum(1 for ch in ss if ch.isalpha())
-    if letters < 2:    
+    if letters < 2:
         return True
     return False
 
-
-from transformers import pipeline
-
 def translate_pt_to_en(text: str) -> str:
+    """Traduz PT->EN preferindo Marian; fallback para mT5/flan se necessário."""
     if not text or not text.strip():
         return ""
+    # tentativa Marian (mais direta)
     try:
-        pipe = pipeline("translation", model=MODEL_MARIAN_PT_EN, tokenizer=MODEL_MARIAN_PT_EN)
-        result = pipe(text)
-        return result[0]['translation_text']
+        pipe = safe_pipeline("translation", MODEL_MARIAN_PT_EN)
+        if pipe:
+            res = pipe(text)
+            out = _extract_translation_result(res)
+            if not _is_bad_translation(out):
+                return out
     except Exception as e:
-        print("Erro PT→EN:", e)
-        return "(erro na tradução — tente novamente)"
+        print("Erro PT→EN Marian:", e)
 
-def translate_en_to_pt(text: str) -> str:
-    if not text or not text.strip():
-        return ""
+    # fallback mT5 / flan
     try:
-        pipe = pipeline("translation", model=MODEL_MARIAN_EN_PT, tokenizer=MODEL_MARIAN_EN_PT)
-        result = pipe(text)
-        return result[0]['translation_text']
+        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+        if mtpipe:
+            prompt = f"Translate to English:\n\n{text}"
+            out = safe_generate(mtpipe, prompt, max_new_tokens=256, deterministic=True)
+            if not _is_bad_translation(out):
+                return out
     except Exception as e:
-        print("Erro EN→PT:", e)
-        return "(erro na tradução — tente novamente)"
+        print("Erro PT→EN mT5:", e)
 
     try:
         flan = safe_pipeline("text2text-generation", MODEL_FLAN)
         if flan:
-            prompt = f"Instruction: Translate the following English text to Portuguese clearly and concisely.\n\nInput: {text}\n\nOutput:"
-            res3 = flan(prompt, max_new_tokens=256, do_sample=False, num_return_sequences=1)
-            out3 = _extract_translation_result(res3)
-            if not _is_bad_translation(out3):
-                return out3
-            else:
-                print("DEBUG translate_en_to_pt: saída FLAN inválida:", repr(out3))
+            prompt = f"Instruction: Translate the following Portuguese text to English clearly and concisely.\n\nInput: {text}\n\nOutput:"
+            out = safe_generate(flan, prompt, max_new_tokens=256, deterministic=True)
+            if not _is_bad_translation(out):
+                return out
     except Exception as e:
-        print("DEBUG translate_en_to_pt FLAN exception:", e)
+        print("Erro PT→EN FLAN:", e)
 
-    print("translate_en_to_pt: nenhum método produziu tradução válida. Verifique logs.")
-    return "(tradução indisponível; ver logs)"
+    return "(tradução indisponível)"
+
+def translate_en_to_pt(text: str) -> str:
+    """Traduz EN->PT preferindo Marian; fallback para flan/mT5 se necessário."""
+    if not text or not text.strip():
+        return ""
+    # tentativa Marian
+    try:
+        pipe = safe_pipeline("translation", MODEL_MARIAN_EN_PT)
+        if pipe:
+            res = pipe(text)
+            out = _extract_translation_result(res)
+            if not _is_bad_translation(out):
+                return out
+    except Exception as e:
+        print("Erro EN→PT Marian:", e)
+
+    # fallback flan / mT5
+    try:
+        flan = safe_pipeline("text2text-generation", MODEL_FLAN)
+        if flan:
+            prompt = f"Instruction: Translate the following English text to Portuguese clearly and concisely.\n\nInput: {text}\n\nOutput:"
+            out = safe_generate(flan, prompt, max_new_tokens=256, deterministic=True)
+            if not _is_bad_translation(out):
+                return out
+    except Exception as e:
+        print("Erro EN→PT FLAN:", e)
+
+    try:
+        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+        if mtpipe:
+            prompt = f"Translate to Portuguese:\n\n{text}"
+            out = safe_generate(mtpipe, prompt, max_new_tokens=256, deterministic=True)
+            if not _is_bad_translation(out):
+                return out
+    except Exception as e:
+        print("Erro EN→PT mT5:", e)
+
+    return "(tradução indisponível)"
 
 def ensure_english_if_possible(text: str):
-    pt_indicators = [" que ", " não ", " para ", " por ", " com ", " é ", " está "]
+    """
+    Se detectar provável PT por indicadores simples, tenta traduzir para EN.
+    Retorna (texto_em_ingles_ou_original, boolean_foi_traduzido)
+    """
+    pt_indicators = [" que ", " não ", " para ", " por ", " com ", " é ", " está ", " será ", " também "]
     if any(w in text.lower() for w in pt_indicators):
         try:
-            return translate_pt_to_en(text), True
+            tr = translate_pt_to_en(text)
+            if not _is_bad_translation(tr):
+                return tr, True
+            else:
+                return text, False
         except Exception:
             return text, False
     return text, False
 
+# ---------- Summarization robusto ----------
+
+def _chunk_text_by_words(text: str, chunk_size_words: int = 400):
+    """Divide texto em blocos de ~chunk_size_words palavras, preservando ordem."""
+    words = text.split()
+    if not words:
+        return []
+    chunks = [" ".join(words[i:i+chunk_size_words]) for i in range(0, len(words), chunk_size_words)]
+    return chunks
+
 def summarize_text(text: str) -> str:
     """
-    Versão melhorada:
-    - tenta pipeline('summarization') (BART) primeiro
-    - fallbacks: MT5 -> FLAN
-    - rejeita saídas muito curtas ou que contenham só pontuação
-    - imprime debug nos logs se nada válido for gerado
+    Resumidor robusto:
+    - Separa textos longos em blocos (~400 palavras por bloco).
+    - Resume cada bloco (BART se disponível; fallback mT5).
+    - Junta os resumos e faz um resumo final curto (ou devolve os resumos concatenados).
+    - Evita saídas triviais e aplica fallbacks com prompts diferentes.
     """
     if not text or not text.strip():
         return ""
 
-    MODEL_SUMMARY = "facebook/bart-large-cnn"
-    MODEL_MT5 = "google/mt5-small"
-    MODEL_FLAN = "google/flan-t5-base"
-    MAX_TOKENS_SUMMARY = 220
-    MIN_TOKENS_SUMMARY = 30
-
-    def looks_good(s: str) -> bool:
-        if not s:
-            return False
-        s2 = s.strip()
-       
-        if all(ch in " \n\t\r.,;:!?-—()[]{}" for ch in s2):
-            return False
-
-        letters = sum(1 for ch in s2 if ch.isalpha())
-        if letters < 20:  
-            return False
-        return True
-
     txt = text.strip()
+    # limita entradas absurdamente longas (o app checa tamanho, mas aqui defendemos novamente)
+    if len(txt) > MAX_SUMMARY_CHARS * 5:
+        txt = txt[:MAX_SUMMARY_CHARS * 5]  # cortar para não travar totalmente
 
-    def debug_log(prefix, obj):
+    # configuração de geração
+    CHUNK_WORDS = 400
+    PER_CHUNK_MAX = 180
+    PER_CHUNK_MIN = 40
+    FINAL_MAX = 120
+    FINAL_MIN = 30
+
+    # tentamos carregar summarizer BART (mais confiável para summarization)
+    summarizer = safe_pipeline("summarization", MODEL_SUMMARIZER)
+    use_bart = summarizer is not None
+
+    # criar chunks
+    chunks = _chunk_text_by_words(txt, chunk_size_words=CHUNK_WORDS)
+    if not chunks:
+        return ""
+
+    summaries = []
+    # resume cada chunk
+    for idx, chunk in enumerate(chunks):
+        got = ""
+        # se chunk curto suficiente, talvez não precise resumir (mas mantemos regra)
         try:
-            print(f"[summarize_text DEBUG] {prefix}: {repr(obj)[:1000]}")
-        except Exception:
-            print(f"[summarize_text DEBUG] {prefix}: (erro ao mostrar)")
+            if use_bart:
+                try:
+                    out = summarizer(chunk, max_length=PER_CHUNK_MAX, min_length=PER_CHUNK_MIN, do_sample=False)
+                    if isinstance(out, list) and out and isinstance(out[0], dict):
+                        got = out[0].get("summary_text") or out[0].get("generated_text") or ""
+                    else:
+                        got = str(out)
+                    got = strip_extra_ids(got).strip()
+                except Exception as e:
+                    print(f"[summarize_text] BART chunk {idx} exception:", e)
+                    got = ""
+            # fallback mT5 for chunk if BART missing or failed
+            if not got:
+                mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+                if mtpipe:
+                    prompt = f"Resuma em português de forma clara e objetiva (2-4 frases):\n\n{chunk}"
+                    got = safe_generate(mtpipe, prompt, max_new_tokens=PER_CHUNK_MAX, deterministic=True)
+                    got = strip_extra_ids(got).strip()
+            # se ainda vazio/ruim, tentar FLAN deterministic
+            if not got:
+                flanpipe = safe_pipeline("text2text-generation", MODEL_FLAN)
+                if flanpipe:
+                    prompt = f"Instruction: Resuma o texto abaixo de forma objetiva e clara em português.\n\nInput: {chunk}\n\nOutput:"
+                    got = safe_generate(flanpipe, prompt, max_new_tokens=PER_CHUNK_MAX, deterministic=True)
+                    got = strip_extra_ids(got).strip()
 
+            if got and not is_trivial_text(got):
+                summaries.append(got)
+            else:
+                print(f"[summarize_text] chunk {idx} gerou saída trivial/ vazia; será ignorado ou usado fallback adicional.")
+        except Exception as e:
+            print(f"[summarize_text] erro ao resumir chunk {idx}:", e)
+            continue
+
+    # se não conseguimos resumos úteis de chunks, tentar um resumo direto do texto inteiro com fallback agressivo
+    if not summaries:
+        print("[summarize_text] Nenhum summary gerado por chunks. Tentando resumo direto (fallback agressivo).")
+        # tentativa direta mT5 com sampling e retries
+        mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+        if mtpipe:
+            prompts = [
+                f"Resuma em português em 3 frases curtas e objetivas:\n\n{txt}",
+                f"Resuma em português em 2 frases muito diretas:\n\n{txt}",
+                f"Resuma em 1-2 frases muito diretas:\n\n{txt}"
+            ]
+            for i, p in enumerate(prompts):
+                try:
+                    deterministic = (i == 0)
+                    out = safe_generate(mtpipe, p, max_new_tokens=FINAL_MAX, deterministic=deterministic)
+                    out = strip_extra_ids(out).strip()
+                    if out and not is_trivial_text(out):
+                        return out
+                except Exception as e:
+                    print("[summarize_text] fallback direto falhou:", e)
+
+        # flan fallback
+        flanpipe = safe_pipeline("text2text-generation", MODEL_FLAN)
+        if flanpipe:
+            try:
+                prompt = f"Instruction: Faça um resumo curto e objetivo em português (2-4 frases):\n\nInput: {txt}\n\nOutput:"
+                out = safe_generate(flanpipe, prompt, max_new_tokens=FINAL_MAX, deterministic=False)
+                out = strip_extra_ids(out).strip()
+                if out and not is_trivial_text(out):
+                    return out
+            except Exception as e:
+                print("[summarize_text] flan fallback falhou:", e)
+
+        # se ainda nada, devolve aviso
+        return "(sem resumo gerado — consulte os logs do servidor para detalhes)"
+
+    # Se temos vários summaries, juntamos e fazemos um resumo final (se possível)
+    combined = " ".join(summaries)
+    # se apenas um resumo obtido, talvez já seja suficiente; tentamos ainda gerar um resumo final mais condensado
     try:
-        try:
-            summarizer = pipeline("summarization", model=MODEL_SUMMARY, tokenizer=MODEL_SUMMARY, device=device)
-            out = summarizer(txt, max_length=MAX_TOKENS_SUMMARY, min_length=MIN_TOKENS_SUMMARY, do_sample=False)
-            if isinstance(out, list) and out and isinstance(out[0], dict):
-                summary_text = out[0].get("summary_text", "") or ""
+        if use_bart:
+            final_summarizer = summarizer
+            out_final = final_summarizer(combined, max_length=FINAL_MAX, min_length=FINAL_MIN, do_sample=False)
+            if isinstance(out_final, list) and out_final and isinstance(out_final[0], dict):
+                final_txt = out_final[0].get("summary_text") or out_final[0].get("generated_text") or ""
             else:
-                summary_text = str(out)
-            summary_text = strip_extra_ids(summary_text).strip()
-            debug_log("BART raw", out)
-            if looks_good(summary_text):
-                return summary_text
+                final_txt = str(out_final)
+            final_txt = strip_extra_ids(final_txt).strip()
+            if final_txt and not is_trivial_text(final_txt):
+                return final_txt
             else:
-                debug_log("BART rejected (too short/punct)", summary_text)
-        except Exception as ex:
-            debug_log("BART exception", ex)
+                print("[summarize_text] resumo final BART foi trivial/ inválido; retornando concat de chunk summaries.")
+        else:
+            # sem BART, tentar mT5 no combined deterministically
+            mtpipe = safe_pipeline("text2text-generation", MODEL_MT5)
+            if mtpipe:
+                prompt = f"Resuma em português de forma objetiva (2-3 frases):\n\n{combined}"
+                out = safe_generate(mtpipe, prompt, max_new_tokens=FINAL_MAX, deterministic=True)
+                out = strip_extra_ids(out).strip()
+                if out and not is_trivial_text(out):
+                    return out
     except Exception as e:
-        print("summarize_text: erro inesperado no bloco BART:", e)
+        print("[summarize_text] exception ao gerar resumo final:", e)
 
-    try:
-        try:
-            mtpipe = pipeline("text2text-generation", model=MODEL_MT5, tokenizer=MODEL_MT5, device=device)
-            prompt = f"Resuma em português de forma clara e objetiva:\n\n{txt}"
-            res = mtpipe(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
-            debug_log("MT5 raw", res)
-            if isinstance(res, list) and res:
-                candidate = res[0].get("generated_text") or res[0].get("text") or str(res[0])
-            else:
-                candidate = str(res)
-            candidate = strip_extra_ids(candidate).strip()
-            if looks_good(candidate):
-                return candidate
-            else:
-                debug_log("MT5 rejected (too short/punct)", candidate)
-        except Exception as ex:
-            debug_log("MT5 exception", ex)
-    except Exception as e:
-        print("summarize_text: erro inesperado no bloco MT5:", e)
+    # último recurso: retorna os primeiros dois summaries concatenados (ou apenas o combined se for curto)
+    if len(summaries) == 1:
+        return summaries[0]
+    return " ".join(summaries[:2])
 
-    try:
-        try:
-            flan = pipeline("text2text-generation", model=MODEL_FLAN, tokenizer=MODEL_FLAN, device=device)
-            prompt = f"Instruction: Resuma o texto a seguir de forma objetiva e clara em português.\n\nInput: {txt}\n\nOutput:"
-            res2 = flan(prompt, max_new_tokens=MAX_TOKENS_SUMMARY, do_sample=False, num_return_sequences=1)
-            debug_log("FLAN raw", res2)
-            if isinstance(res2, list) and res2:
-                candidate2 = res2[0].get("generated_text") or res2[0].get("text") or str(res2[0])
-            else:
-                candidate2 = str(res2)
-            candidate2 = strip_extra_ids(candidate2).strip()
-            if looks_good(candidate2):
-                return candidate2
-            else:
-                debug_log("FLAN rejected (too short/punct)", candidate2)
-        except Exception as ex:
-            debug_log("FLAN exception", ex)
-    except Exception as e:
-        print("summarize_text: erro inesperado no bloco FLAN:", e)
-
-    print("summarize_text: nenhum método gerou resumo válido. Verifique os logs debug acima.")
-    return "(sem resumo gerado — consulte os logs do servidor para detalhes)"
+# Se quiser expor funções úteis ao importar utils
+__all__ = [
+    "translate_pt_to_en",
+    "translate_en_to_pt",
+    "ensure_english_if_possible",
+    "summarize_text",
+    "MAX_SUMMARY_CHARS",
+    "strip_extra_ids"
+]
