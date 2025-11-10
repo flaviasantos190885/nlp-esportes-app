@@ -160,7 +160,7 @@ if task == "Gerar texto (Wikipedia)":
                     st.error(f"Erro ao buscar ou gerar texto: {e}")
 
 
-# ✂️ RESUMIR TEXTO 
+# ✂️ RESUMIR TEXTO -
 
 elif task == "Resumir texto":
     st.header("✂️ Resumo de texto esportivo")
