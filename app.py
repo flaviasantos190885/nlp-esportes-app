@@ -122,7 +122,7 @@ if task == "Gerar texto (Wikipedia)":
     st.write(f"Digite o nome de um esporte/tema (máx {MAX_GEN_CHARS} caracteres). A aplicação tentará buscar na Wikipedia e, se não encontrar, gerará um texto com o modelo.")
 
 
-    entrada = st.text_area("🏷️ Tema esportivo:", height=80, max_chars=MAX_GEN_CHARS, placeholder="Exemplo: vôlei brasileiro, Copa do Mundo, Ayrton Senna")
+    entrada = st.text_area("🏷️ Tema esportivo:", height=80, max_chars=MAX_GEN_CHARS, placeholder="Exemplo: Vôlei brasileiro, Copa do Mundo, Flamengo")
 
     if st.button("Gerar texto"):
         ok, msg = check_input_length(entrada, MAX_GEN_CHARS)
