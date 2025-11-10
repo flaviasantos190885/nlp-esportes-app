@@ -250,7 +250,7 @@ elif task == "Pergunta/Resposta":
                             if hits:
                                 page = wikipedia.page(hits[0])
                                 summary = wikipedia.summary(page.title, sentences=3)
-                                st.success("✅ Resposta provável (Wikipedia):")
+                                st.success("✅ Resposta (Wikipedia):")
                                 st.write(summary)
                             else:
                                 st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
@@ -261,7 +261,7 @@ elif task == "Pergunta/Resposta":
                         if hits:
                             page = wikipedia.page(hits[0])
                             summary = wikipedia.summary(page.title, sentences=3)
-                            st.success("✅ Resposta provável (Wikipedia):")
+                            st.success("✅ Resposta (Wikipedia):")
                             st.write(summary)
                         else:
                             st.warning("Não encontrei nada na Wikipedia para essa pergunta.")
